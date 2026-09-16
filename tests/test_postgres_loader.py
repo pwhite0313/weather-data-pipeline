@@ -1,7 +1,7 @@
 import pytest
 from datetime import datetime
 
-from src.postgres_loader import parse_source_file_ts
+from src.postgres_loader import format_load_result, parse_source_file_ts
 
 
 class TestParseSourceFileTs:
@@ -32,4 +32,28 @@ class TestParseSourceFileTs:
     def test_malformed_timestamp_raises(self):
         with pytest.raises(ValueError):
             parse_source_file_ts("output_not_a_date.csv")
+
+
+class TestFormatLoadResult:
+    def test_loaded_result_renders_counts_and_target(self):
+        result = {
+            "status": "loaded",
+            "rows": 342,
+            "source_file": "output_20260509_143022.csv",
+            "table": "raw.weather_forecast",
+        }
+        assert format_load_result(result) == (
+            "Loaded 342 rows from output_20260509_143022.csv into raw.weather_forecast"
+        )
+
+    def test_skipped_result_names_the_file(self):
+        result = {
+            "status": "skipped",
+            "rows": 0,
+            "source_file": "output_20260509_143022.csv",
+            "table": "raw.weather_forecast",
+        }
+        assert format_load_result(result) == (
+            "Skipped already loaded file: output_20260509_143022.csv"
+        )
 

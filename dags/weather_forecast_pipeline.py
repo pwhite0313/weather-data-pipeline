@@ -1,5 +1,4 @@
 import logging
-import re
 from datetime import datetime, timedelta
 
 from airflow.decorators import dag, task
@@ -68,30 +67,24 @@ def weather_forecast_pipeline():
         )
 
     @task
-    def validate_row_count(load_result: str):
-        logger = logging.getLogger(__name__)
-
-        if load_result.startswith("Skipped"):
-            logger.info("File was already loaded — skipping row count check")
+    def validate_row_count(load_result: dict):
+        if load_result["status"] == "skipped":
+            logger.info("File was already loaded, skipping row count check")
             return
 
-        match = re.search(r"Loaded (\d+) rows", load_result)
-        if not match:
-            raise ValueError(f"Unexpected load result format: {load_result}")
-
-        row_count = int(match.group(1))
+        row_count = load_result["rows"]
         logger.info("Rows loaded this run: %d", row_count)
 
         if row_count == 0:
-            raise ValueError("Load task reported 0 rows — aborting before dbt run")
+            raise ValueError("Load task reported 0 rows, aborting before dbt run")
 
     @task
-    def volume_anomaly_check(load_result: str):
+    def volume_anomaly_check(load_result: dict):
         from sqlalchemy import text
         task_logger = logging.getLogger(__name__)
 
-        if load_result.startswith("Skipped"):
-            task_logger.info("File was already loaded — skipping volume anomaly check")
+        if load_result["status"] == "skipped":
+            task_logger.info("File was already loaded, skipping volume anomaly check")
             return
 
         context = get_current_context()

@@ -121,11 +121,21 @@ def file_already_loaded(engine: Engine, source_file_name: str) -> bool:
     return already_loaded
 
 
+def format_load_result(result: dict) -> str:
+    if result["status"] == "skipped":
+        return f"Skipped already loaded file: {result['source_file']}"
+
+    return (
+        f"Loaded {result['rows']} rows from {result['source_file']} "
+        f"into {result['table']}"
+    )
+
+
 def load_file(
     file_path: str,
     dag_run_id: str | None = None,
     skip_if_loaded: bool = True,
-) -> str:
+) -> dict:
     logger.info("Starting raw table load")
     logger.info("Input file path: %s", file_path)
     logger.info("DAG run ID: %s", dag_run_id)
@@ -145,9 +155,13 @@ def load_file(
     logger.info("Source file timestamp: %s", source_file_ts)
 
     if skip_if_loaded and file_already_loaded(engine, source_file_name):
-        message = f"Skipped already loaded file: {source_file_name}"
-        logger.warning(message)
-        return message
+        logger.warning("Skipped already loaded file: %s", source_file_name)
+        return {
+            "status": "skipped",
+            "rows": 0,
+            "source_file": source_file_name,
+            "table": f"{RAW_SCHEMA}.{RAW_TABLE}",
+        }
 
     logger.info("Reading CSV")
     df = pd.read_csv(path)
@@ -171,13 +185,18 @@ def load_file(
         chunksize=1000,
     )
 
-    message = f"Loaded {len(df)} rows from {source_file_name} into {RAW_SCHEMA}.{RAW_TABLE}"
-    logger.info(message)
+    result = {
+        "status": "loaded",
+        "rows": len(df),
+        "source_file": source_file_name,
+        "table": f"{RAW_SCHEMA}.{RAW_TABLE}",
+    }
+    logger.info(format_load_result(result))
 
-    return message
+    return result
 
 
-def load_all_files(dag_run_id: str | None = None) -> list[str]:
+def load_all_files(dag_run_id: str | None = None) -> list[dict]:
     if dag_run_id == "":
         dag_run_id = None
 
@@ -214,9 +233,11 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.command == "file":
-        print(load_file(file_path=args.file_path, dag_run_id=args.dag_run_id))
+        print(format_load_result(
+            load_file(file_path=args.file_path, dag_run_id=args.dag_run_id)
+        ))
     elif args.command == "all":
         for r in load_all_files():
-            print(r)
+            print(format_load_result(r))
     else:
         parser.print_help()
