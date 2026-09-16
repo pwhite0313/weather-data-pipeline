@@ -10,6 +10,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 
 from src.logging_config import setup_logging
+from src.schema import conform_to_schema
 from src.utils import RAW_DATA_DIR
 
 
@@ -166,6 +167,11 @@ def load_file(
     logger.info("Reading CSV")
     df = pd.read_csv(path)
     logger.info("Rows read from CSV: %s", len(df))
+
+    # Applied here as well as in transform so that CSVs written before the
+    # schema contract existed still create a complete raw table. Runs before the
+    # lineage columns below, which are deliberately not part of the contract.
+    df = conform_to_schema(df)
 
     df["source_file_name"] = source_file_name
     df["source_file_ts"] = source_file_ts

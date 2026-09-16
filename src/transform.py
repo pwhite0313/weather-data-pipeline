@@ -1,6 +1,8 @@
 import logging
 import pandas as pd
 
+from src.schema import conform_to_schema
+
 logger = logging.getLogger(__name__)
 
 def validate_response(data: list) -> None:
@@ -55,6 +57,10 @@ def transform_records(data):
     # Convert column to date_time
     df["dt_txt"] = pd.to_datetime(df["dt_txt"], errors="coerce")
     df = df.dropna(subset=["dt_txt"])
+
+    # Pin the column set so the CSV, and the raw table created from it, do not
+    # vary with whichever optional fields the API happened to send today.
+    df = conform_to_schema(df)
 
     logger.info("Transformed to Pandas DF of shape: %s", df.shape)
 
