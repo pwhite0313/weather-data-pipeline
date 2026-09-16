@@ -9,12 +9,12 @@ ELT pipeline that pulls live weather forecast data from the OpenWeatherMap API a
 - **REST API ingestion** — Pulls live 5-day forecast data for 15 cities with retry logic, timeout handling, and structured error logging
 - **Idempotent loads** — Filename-keyed deduplication prevents duplicate ingestion across retries and backfills
 - **Volume anomaly detection** — Each run's row count is compared against a 7-run rolling average; runs loading more than 50% fewer rows than the baseline fail before transformation begins
-- **Schema contract enforcement** — Unknown API fields are detected at load time, dropped gracefully, and logged as warnings rather than crashing the pipeline
-- **Layered dbt architecture** — Staging, intermediate, mart, and report layers with clear separation of concerns and incremental fact models using `NOT EXISTS` anti-joins
-- **49 dbt schema tests** — Uniqueness, not-null, range, accepted-value, and referential integrity checks enforced across the warehouse
+- **Schema contract enforcement** — A canonical column and dtype contract keeps the raw table's shape identical no matter which optional fields the API returned that day; unknown fields are dropped and logged rather than crashing the pipeline
+- **Layered dbt architecture** — Staging, intermediate, mart, and report layers with clear separation of concerns and an incremental fact model driven by an `ingested_at` load watermark
+- **51 dbt schema tests** — Uniqueness, not-null, range, accepted-value, and referential integrity checks enforced across the warehouse
 - **Staging deduplication** — Overlapping forecast windows across DAG runs resolved in the staging model using `ROW_NUMBER()`
 - **CI/CD via GitHub Actions** — Automated pytest suite runs on every push to master
-- **19 pytest unit tests** — Validates transform logic, schema enforcement, and file timestamp parsing
+- **49 pytest unit tests** — Validates transform logic, the raw schema contract, volume anomaly thresholds, and file timestamp parsing
 - **Structured logging** — Python `logging` module throughout the ingestion layer; Airflow task logs capture full run context including `dag_run_id`
 - **Dockerized deployment** — Airflow and PostgreSQL run in isolated containers via Docker Compose
 
@@ -31,7 +31,7 @@ graph TD
     E --> F["dbt Intermediate\nint_weather_enriched\nderived categories"]
     F --> G["dbt Marts\ndim_city · fct_weather_forecast · fct_weather_daily"]
     G --> H["dbt Reports\nrpt_current_conditions\ncurrent conditions per city"]
-    H --> I["dbt Tests\n35 schema tests · data contracts"]
+    H --> I["dbt Tests\n51 schema tests · data contracts"]
 ```
 
 ---
@@ -50,7 +50,7 @@ graph TD
 
 The pipeline runs three data quality checks before dbt ever touches the data: a row count validation, a volume anomaly check (current run compared against a 7-run rolling average), and dbt schema tests on the way out. If any of them fail, the run stops there.
 
-Every row in the warehouse carries `source_file_name`, `ingested_at`, and `dag_run_id` — enough to trace any row back to the exact API call that produced it. Loads are idempotent, so backfilling a missed run or retrying a failed one is safe without cleanup. The 6 dbt models have 49 schema tests across uniqueness, not-null, range, and referential integrity checks. There are also 19 pytest unit tests covering transform logic, schema enforcement, and timestamp parsing, run automatically on every push via GitHub Actions.
+Every row in the warehouse carries `source_file_name`, `ingested_at`, and `dag_run_id` — enough to trace any row back to the exact API call that produced it. Loads are idempotent, so backfilling a missed run or retrying a failed one is safe without cleanup. The 6 dbt models have 51 schema tests across uniqueness, not-null, range, and referential integrity checks. There are also 49 pytest unit tests covering transform logic, the raw schema contract, volume anomaly thresholds, and timestamp parsing, run automatically on every push via GitHub Actions.
 
 ---
 
@@ -116,18 +116,23 @@ weather_pipeline/
 ├── tests/
 │   ├── conftest.py                    # Shared pytest fixtures
 │   ├── test_transform.py              # Transform logic unit tests
+│   ├── test_schema.py                 # Raw column/dtype contract tests
+│   ├── test_quality_checks.py         # Volume anomaly threshold tests
 │   └── test_postgres_loader.py        # postgres_loader unit tests
 ├── src/
 │   ├── client.py                      # OpenWeatherMap API client
 │   ├── extract.py                     # Calls API and returns raw records
 │   ├── transform.py                   # Cleans and flattens records
+│   ├── schema.py                      # Canonical raw column and dtype contract
 │   ├── load.py                        # Writes records to CSV
 │   ├── postgres_loader.py             # Loads CSVs into raw.weather_forecast
+│   ├── quality_checks.py              # Volume anomaly detection
 │   ├── main.py                        # CLI entrypoint (runs full pipeline locally)
 │   ├── logging_config.py
 │   └── utils.py
 ├── docs/
-│   └── lineage.png                    # dbt lineage graph
+│   ├── airflow_dag.png                # Airflow DAG graph
+│   └── dbt_lineage.png                # dbt lineage graph
 ├── config/
 │   └── airflow.cfg
 ├── docker-compose.yml
@@ -186,7 +191,7 @@ Adds derived categorical columns on top of the staging model: `temp_category` (f
 City dimension table. One row per city, deduplicated using `ROW_NUMBER()` ordered by most recent forecast.
 
 ### analytics.fct_weather_forecast
-Incremental 3-hour forecast fact table. Uses a `NOT EXISTS` anti-join on `(city_id, local_dt)` so new cities are ingested correctly without reprocessing existing rows.
+Incremental 3-hour forecast fact table. Each run reads staging from the newest `ingested_at` already present in the table, so prior batches are not rescanned, and the `unique_key` of `(city_id, local_dt)` upserts rather than appends. That combination means a forecast the API later revises replaces its earlier row instead of being discarded as a duplicate.
 
 ### analytics.fct_weather_daily
 Daily aggregate fact. Rolls up the 3-hour forecasts to one row per `city_id` + calendar date: avg/min/max temp, avg humidity, avg wind speed, total rain and snow.
@@ -212,9 +217,9 @@ To simulate: temporarily add `del data[0]["city"]` in `transform.py` before `val
 
 To simulate: temporarily set the threshold to 110% (`rolling_avg * 1.1`) and trigger the DAG. It will fail at `volume_anomaly_check` with a clear message including the run ID. Restore to `rolling_avg * 0.5` after verifying.
 
-**Data quality failure** — the `dbt_test` task runs after `dbt_run` and enforces contracts on the staging model including uniqueness, not-null checks, range validation, and freshness. If any test fails, the DAG fails at `dbt_test` and the mart is not updated.
+**Data quality failure** — the `dbt_build` task runs and tests each model in dependency order, enforcing uniqueness, not-null checks, and range validation as it goes. Because tests run interleaved with the models rather than after all of them, a failing test on the staging model stops the marts and reports from being built on data already known to be bad.
 
-To simulate: run `UPDATE raw.weather_forecast SET weather_id = NULL WHERE city_id = 5128581 LIMIT 1;` in the warehouse, then trigger the DAG. The `dbt_test` task will fail on the `not_null` test for `weather_id`. Restore with `UPDATE raw.weather_forecast SET weather_id = 500 WHERE weather_id IS NULL;`.
+To simulate: run `UPDATE raw.weather_forecast SET weather_id = NULL WHERE city_id = 5128581;` in the warehouse, then trigger the DAG. The `dbt_build` task will fail on the `not_null` test for `weather_id` and the downstream models will be skipped. Restore with `UPDATE raw.weather_forecast SET weather_id = 500 WHERE weather_id IS NULL;`.
 
 This was observed in practice when overlapping forecast data caused a uniqueness violation, which was resolved by deduplicating in the staging model using `ROW_NUMBER()`.
 
@@ -222,15 +227,21 @@ This was observed in practice when overlapping forecast data caused a uniqueness
 
 ## Testing
 
+The test suite runs outside Docker, so create a virtualenv first. `venv/` is gitignored, so a fresh clone will not have one:
+
 ```bash
+python3 -m venv venv
 source venv/bin/activate
+pip install -r requirements.txt
 python -m pytest tests/ -v
 ```
 
-Tests are split across two files:
+49 tests across four files:
 
 - `test_transform.py` — validates `validate_response` (input shape, missing fields, wrong types) and `transform_records` (output schema, row count, city broadcast, bad date handling, weather field flattening)
-- `test_postgres_loader.py` — validates `parse_source_file_ts` (valid filename, date/time parsing, full path, missing prefix, malformed timestamp)
+- `test_schema.py` — validates the canonical column and dtype contract: optional fields absent from a payload are filled with nulls, unknown fields are dropped, column order is stable, and integer columns keep an integer rendering even when a null forces a float promotion
+- `test_quality_checks.py` — validates the volume anomaly thresholds, including the boundary case, the insufficient-history skip, and an empty warehouse
+- `test_postgres_loader.py` — validates `parse_source_file_ts` (valid filename, date/time parsing, full path, missing prefix, malformed timestamp) and the structured load result formatting
 
 Shared fixtures live in `conftest.py`. The CI workflow in `.github/workflows/ci.yml` runs the full suite on every push and pull request to master.
 
@@ -261,7 +272,11 @@ ALTER TABLE raw.weather_forecast ADD COLUMN main_dew_point numeric;
 
 The next DAG run will pick up the column automatically with no code changes required. At production scale this pattern would be replaced by a migration tool like Alembic that versions schema changes as auditable migration scripts.
 
-**Conditionally-absent known fields** — a separate case from schema drift: `snow_3h` is only present in the API response at all when some city has snow in the forecast, so a snow-free first load would infer a table with no `snow_3h` column, breaking the dbt staging model which selects it unconditionally. `postgres_loader.py` guards against this via `KNOWN_OPTIONAL_COLUMNS` — such fields are forced onto the DataFrame as null before every load if the source CSV doesn't include them, so the table always has the column from the first insert onward, regardless of the day's weather.
+**Conditionally-absent known fields** — a separate case from schema drift. The API omits optional keys entirely rather than sending nulls: `snow_3h` appears only when some city has snow forecast, `rain_3h` only when some city has rain. Because `to_sql` creates the raw table from the first file it sees, a snow-free first load used to produce a table with no `snow_3h` column, and the staging model selects it unconditionally. A clone started in summer therefore died on `column "snow_3h" does not exist`.
+
+`src/schema.py` fixes this with a canonical contract. `conform_to_schema` reindexes every frame to a fixed 34-column list before it is written or loaded, filling absent columns with nulls and dropping unrecognized ones with a warning. It also pins dtypes, because pandas infers them per file: one null promotes an integer column to float, and `"10000.0"` is not valid input for a `BIGINT` column. The contract is applied in both `transform.py` and `postgres_loader.py`, so CSVs written before it existed still produce a complete table.
+
+Adding a genuinely new API field is a deliberate one-line change to `FORECAST_COLUMNS` plus an `ALTER TABLE`, rather than something that happens silently based on the weather.
 
 **dbt-core and apache-airflow-providers-postgres must stay pinned in requirements-airflow.txt** — `dbt/models/marts/schema.yml` uses the `arguments:` generic-test syntax (dbt-core >=1.9), so `requirements-airflow.txt` pins `dbt-core==1.11.8`/`dbt-postgres==1.10.0` to match `requirements.txt` (the local, no-Docker venv path) exactly. Left unpinned, a fresh build can resolve an incompatible dbt-core (too old for the test syntax, or a pre-release) purely based on whatever's newest on PyPI that day — this has broken from-scratch builds before without anyone noticing, since Docker layer caching usually reused an old, working resolution. `apache-airflow-providers-postgres` is pinned to `5.10.0` in its own separate `RUN` step in the `Dockerfile` for the same reason (left unpinned, it resolves a release built for Airflow 3.x) and to avoid pip backtracking for a very long time when resolved together with the dbt pins. See the comments in `Dockerfile` and `requirements-airflow.txt` before changing any of these.
 
@@ -412,9 +427,10 @@ dbt runs automatically as part of the Airflow DAG. To run manually:
 source venv/bin/activate
 cd dbt
 dbt deps
-dbt run
-dbt test
+dbt build
 ```
+
+`dbt build` runs and tests each model in dependency order. `dbt run` and `dbt test` still work if you want the two phases separately, but `build` is what the DAG uses, because it stops a failing test from letting downstream models be built on bad data.
 
 `dbt deps` installs the packages listed in `packages.yml` into `dbt_packages/` (gitignored) — required once before the first `dbt run`/`dbt test`/`dbt source freshness`, and again after `packages.yml` changes.
 
