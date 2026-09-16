@@ -74,6 +74,7 @@ SELECT
     weather_id,
     weather_main,
     weather_description,
-    weather_icon
+    weather_icon,
+    ingested_at
 FROM ranked
 WHERE row_num = 1

@@ -17,13 +17,23 @@ select
     wind_gust,
     weather_main,
     weather_description,
-    weather_id
+    weather_id,
+    ingested_at
 from {{ ref('stg_weather__forecast') }}
 
 {% if is_incremental() %}
-    where not exists (
-        select 1 from {{ this }} t
-        where t.city_id = city_id
-          and t.local_dt = local_dt
+    -- Only scan batches at or after the newest one already loaded, rather than
+    -- re-reading all of staging on every run.
+    --
+    -- `>=` and not `>`: every row from a single CSV load shares one ingested_at,
+    -- so a strict comparison would skip an entire batch whose timestamp happened
+    -- to equal the stored maximum. Reprocessing the boundary batch costs nothing
+    -- because the unique_key config upserts rather than appends.
+    --
+    -- The coalesce guards the case where the table exists but is empty, where a
+    -- bare max() returns null and the filter would silently match no rows.
+    where ingested_at >= coalesce(
+        (select max(ingested_at) from {{ this }}),
+        '1900-01-01'::timestamp
     )
 {% endif %}

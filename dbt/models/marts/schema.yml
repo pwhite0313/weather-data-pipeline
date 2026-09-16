@@ -183,3 +183,11 @@ models:
         description: "Weather condition ID from the API."
         tests:
           - not_null
+
+      - name: ingested_at
+        description: >
+          UTC timestamp of the raw load this row came from. Doubles as the
+          incremental watermark: each run reads staging from the newest
+          ingested_at already present here.
+        tests:
+          - not_null

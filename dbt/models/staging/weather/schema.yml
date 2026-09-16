@@ -153,3 +153,11 @@ models:
 
       - name: weather_icon
         description: "Weather icon code from API."
+
+      - name: ingested_at
+        description: >
+          UTC timestamp of when this row was loaded into the raw table. Carried
+          through from the source so downstream incremental models can use it as
+          a load watermark.
+        tests:
+          - not_null
