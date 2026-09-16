@@ -137,24 +137,28 @@ def weather_forecast_pipeline():
 
     dbt_source_freshness = BashOperator(
         task_id="dbt_source_freshness",
-        bash_command=f"cd {DBT_DIR} && dbt source freshness --profiles-dir {DBT_DIR} --target ${{DBT_TARGET:-dev}}",
+        bash_command=(
+            f"dbt source freshness --project-dir {DBT_DIR} "
+            f"--profiles-dir {DBT_DIR} --target ${{DBT_TARGET:-dev}}"
+        ),
     )
 
-    dbt_run = BashOperator(
-        task_id="dbt_run",
-        bash_command=f"cd {DBT_DIR} && dbt run --profiles-dir {DBT_DIR} --target ${{DBT_TARGET:-dev}}",
-    )
-
-    dbt_test = BashOperator(
-        task_id="dbt_test",
-        bash_command=f"cd {DBT_DIR} && dbt test --profiles-dir {DBT_DIR} --target ${{DBT_TARGET:-dev}}",
+    # `dbt build` rather than a `dbt run` -> `dbt test` pair: build interleaves
+    # run and test per node in DAG order, so a failing test on a staging model
+    # stops the marts and reports from being built on data already known to be bad.
+    dbt_build = BashOperator(
+        task_id="dbt_build",
+        bash_command=(
+            f"dbt build --project-dir {DBT_DIR} "
+            f"--profiles-dir {DBT_DIR} --target ${{DBT_TARGET:-dev}}"
+        ),
     )
 
     raw = extract()
     clean = transform(raw)
     file_path = load(clean)
     load_result = load_raw_table(file_path)
-    validate_row_count(load_result) >> volume_anomaly_check(load_result) >> dbt_source_freshness >> dbt_run >> dbt_test
+    validate_row_count(load_result) >> volume_anomaly_check(load_result) >> dbt_source_freshness >> dbt_build
 
 
 dag = weather_forecast_pipeline()
