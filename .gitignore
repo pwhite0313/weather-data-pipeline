@@ -14,8 +14,13 @@ __pycache__/
 
 # Virtual environments
 venv/
-.env
 airflow_venv
+
+# Secrets. `.env` alone does not cover backups or per-environment variants
+# like .env.bak / .env.local, each of which holds a real API key.
+.env
+.env.*
+!.env.example
 
 # Jupyter Notebook checkpoints
 .ipynb_checkpoints/
