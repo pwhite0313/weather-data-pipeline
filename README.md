@@ -449,13 +449,33 @@ The most common commands are wrapped in a `Makefile`:
 
 ## dbt
 
-dbt runs automatically as part of the Airflow DAG. To run manually:
+dbt runs automatically as part of the Airflow DAG. To run manually from the host:
 
 ```bash
 source venv/bin/activate
+set -a; source .env; set +a        # from the repo root
 cd dbt
 dbt deps
-dbt build
+WAREHOUSE_HOST=localhost dbt build
+```
+
+`WAREHOUSE_HOST` has to be overridden. `.env` sets it to `postgres-warehouse`, which is the Compose service name and only resolves inside the Docker network. From the host the warehouse is reachable on the published port at `localhost:5432`.
+
+### Which profiles.yml dbt uses
+
+dbt picks exactly one `profiles.yml`; it never merges several. The search order is:
+
+1. the `--profiles-dir` flag
+2. the `DBT_PROFILES_DIR` environment variable
+3. the current working directory
+4. `~/.dbt/`
+
+The DAG and the `Makefile` always pass `--profiles-dir /opt/airflow/dbt`, so inside the container this project's `dbt/profiles.yml` is used and nothing else is consulted.
+
+Running manually is where it gets subtle. Because `cd dbt` puts this project's `profiles.yml` in the working directory, rule 3 wins and any `~/.dbt/profiles.yml` you may have is ignored. That is why the env vars above are required. If you would rather use a personal profile with the connection hardcoded, point at it explicitly:
+
+```bash
+dbt build --profiles-dir ~/.dbt
 ```
 
 `dbt build` runs and tests each model in dependency order. `dbt run` and `dbt test` still work if you want the two phases separately, but `build` is what the DAG uses, because it stops a failing test from letting downstream models be built on bad data.
