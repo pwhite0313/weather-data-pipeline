@@ -14,7 +14,7 @@ ELT pipeline that pulls live weather forecast data from the OpenWeatherMap API a
 - **51 dbt schema tests** — Uniqueness, not-null, range, accepted-value, and referential integrity checks enforced across the warehouse
 - **Staging deduplication** — Overlapping forecast windows across DAG runs resolved in the staging model using `ROW_NUMBER()`
 - **CI/CD via GitHub Actions** — Automated pytest suite runs on every push to master
-- **49 pytest unit tests** — Validates transform logic, the raw schema contract, volume anomaly thresholds, and file timestamp parsing
+- **58 pytest unit tests** — Validates transform logic, the raw schema contract, volume anomaly thresholds, atomic CSV writes, and file timestamp parsing
 - **Structured logging** — Python `logging` module throughout the ingestion layer; Airflow task logs capture full run context including `dag_run_id`
 - **Dockerized deployment** — Airflow and PostgreSQL run in isolated containers via Docker Compose
 
@@ -50,7 +50,7 @@ graph TD
 
 The pipeline runs three data quality checks before dbt ever touches the data: a row count validation, a volume anomaly check (current run compared against a 7-run rolling average), and dbt schema tests on the way out. If any of them fail, the run stops there.
 
-Every row in the warehouse carries `source_file_name`, `ingested_at`, and `dag_run_id` — enough to trace any row back to the exact API call that produced it. Loads are idempotent, so backfilling a missed run or retrying a failed one is safe without cleanup. The 6 dbt models have 51 schema tests across uniqueness, not-null, range, and referential integrity checks. There are also 49 pytest unit tests covering transform logic, the raw schema contract, volume anomaly thresholds, and timestamp parsing, run automatically on every push via GitHub Actions.
+Every row in the warehouse carries `source_file_name`, `ingested_at`, and `dag_run_id` — enough to trace any row back to the exact API call that produced it. Loads are idempotent, so backfilling a missed run or retrying a failed one is safe without cleanup. The 6 dbt models have 51 schema tests across uniqueness, not-null, range, and referential integrity checks. There are also 58 pytest unit tests covering transform logic, the raw schema contract, volume anomaly thresholds, atomic CSV writes, and timestamp parsing, run automatically on every push via GitHub Actions.
 
 ---
 
@@ -90,9 +90,9 @@ weather_pipeline/
 │       └── ci.yml                     # GitHub Actions: pytest on push
 ├── dags/
 │   └── weather_forecast_pipeline.py   # Airflow DAG definition
-├── data/
+├── data/                              # contents gitignored; dirs ship empty
 │   ├── raw/                           # CSV output files from each DAG run
-│   └── processed/
+│   └── processed/                     # unused, reserved
 ├── dbt/
 │   ├── models/
 │   │   ├── staging/weather/
@@ -118,6 +118,7 @@ weather_pipeline/
 │   ├── test_transform.py              # Transform logic unit tests
 │   ├── test_schema.py                 # Raw column/dtype contract tests
 │   ├── test_quality_checks.py         # Volume anomaly threshold tests
+│   ├── test_load.py                   # Atomic CSV write tests
 │   └── test_postgres_loader.py        # postgres_loader unit tests
 ├── src/
 │   ├── client.py                      # OpenWeatherMap API client
@@ -150,36 +151,46 @@ weather_pipeline/
 ### raw.weather_forecast
 Loaded directly from CSV files by Airflow. Includes all raw API fields plus pipeline metadata:
 
+The 34 API columns are fixed by the contract in `src/schema.py`, so this shape does not change with the weather. Types below are what `to_sql` creates from the pinned pandas dtypes.
+
 | Column | Type | Description |
 |---|---|---|
 | dt | bigint | Forecast Unix timestamp |
 | dt_txt | text | Forecast timestamp as text |
-| main_temp | numeric | Temperature (°F) |
-| main_feels_like | numeric | Feels-like temperature |
-| main_temp_min / max | numeric | Min/max temperature |
+| main_temp | double precision | Temperature (°F) |
+| main_feels_like | double precision | Feels-like temperature |
+| main_temp_min / max | double precision | Min/max temperature |
+| main_temp_kf | double precision | Internal temperature adjustment from the API |
+| main_dew_point | double precision | Dew point |
 | main_humidity | bigint | Humidity % |
 | main_pressure | bigint | Atmospheric pressure |
-| wind_speed | numeric | Wind speed |
+| main_sea_level / grnd_level | bigint | Pressure at sea and ground level |
+| wind_speed | double precision | Wind speed |
 | wind_deg | bigint | Wind direction (degrees) |
-| wind_gust | numeric | Wind gust speed |
-| rain_3h | numeric | Rain volume (last 3 hours) |
-| snow_3h | numeric | Snow volume (last 3 hours) — optional, null when no snow |
+| wind_gust | double precision | Wind gust speed |
+| rain_3h | double precision | Rain volume (last 3 hours), null when no rain |
+| snow_3h | double precision | Snow volume (last 3 hours), null when no snow |
 | clouds_all | bigint | Cloud coverage % |
 | visibility | bigint | Visibility distance |
-| pop | numeric | Probability of precipitation (0-1) |
+| pop | double precision | Probability of precipitation (0-1) |
+| sys_pod | text | Part of day indicator (d / n) |
+| weather_id | bigint | Weather condition ID |
 | weather_main | text | High-level condition (Rain, Clouds, etc.) |
 | weather_description | text | Detailed condition |
+| weather_icon | text | Icon code |
 | city_id | bigint | City identifier |
 | city_name | text | City name |
 | city_country | text | Country code |
 | city_population | bigint | City population |
 | city_timezone | bigint | UTC offset in seconds |
 | city_sunrise / sunset | bigint | Sunrise/sunset Unix timestamps |
-| city_coord_lat / lon | numeric | Coordinates |
+| city_coord_lat / lon | double precision | Coordinates |
 | source_file_name | text | Source CSV filename |
 | source_file_ts | timestamp | Timestamp parsed from filename |
 | ingested_at | timestamp | UTC time of ingestion |
 | dag_run_id | text | Airflow DAG run ID |
+
+The last four are pipeline metadata added at load time, not API fields.
 
 ### staging.stg_weather__forecast
 dbt staging model. Casts all columns to correct types, normalizes timestamps to UTC, trims strings, and deduplicates by keeping the most recent ingestion for each `city_id` + `dt_utc` combination.
@@ -215,7 +226,7 @@ To simulate: temporarily add `del data[0]["city"]` in `transform.py` before `val
 
 **Volume anomaly failure** — the `volume_anomaly_check` task compares the current run's row count against a 7-run rolling average. If the current run loads more than 50% fewer rows than the rolling average, the DAG fails before dbt runs. The error message includes the `dag_run_id` so the anomalous run can be identified and inspected in the warehouse. The check is skipped automatically if fewer than 3 prior runs exist.
 
-To simulate: temporarily set the threshold to 110% (`rolling_avg * 1.1`) and trigger the DAG. It will fail at `volume_anomaly_check` with a clear message including the run ID. Restore to `rolling_avg * 0.5` after verifying.
+To simulate: temporarily set `ANOMALY_THRESHOLD_RATIO = 1.1` in `src/quality_checks.py` and trigger the DAG. It will fail at `volume_anomaly_check` with a clear message including the run ID. Restore to `0.5` after verifying.
 
 **Data quality failure** — the `dbt_build` task runs and tests each model in dependency order, enforcing uniqueness, not-null checks, and range validation as it goes. Because tests run interleaved with the models rather than after all of them, a failing test on the staging model stops the marts and reports from being built on data already known to be bad.
 
@@ -236,12 +247,13 @@ pip install -r requirements.txt
 python -m pytest tests/ -v
 ```
 
-49 tests across four files:
+58 tests across five files:
 
 - `test_transform.py` — validates `validate_response` (input shape, missing fields, wrong types) and `transform_records` (output schema, row count, city broadcast, bad date handling, weather field flattening)
 - `test_schema.py` — validates the canonical column and dtype contract: optional fields absent from a payload are filled with nulls, unknown fields are dropped, column order is stable, and integer columns keep an integer rendering even when a null forces a float promotion
 - `test_quality_checks.py` — validates the volume anomaly thresholds, including the boundary case, the insufficient-history skip, and an empty warehouse
-- `test_postgres_loader.py` — validates `parse_source_file_ts` (valid filename, date/time parsing, full path, missing prefix, malformed timestamp) and the structured load result formatting
+- `test_load.py` — validates that CSV writes are atomic: no temp file is left behind on success, no partial CSV is left at the target path on failure, back-to-back writes do not collide, and the generated filename round-trips through the parser
+- `test_postgres_loader.py` — validates `parse_source_file_ts` (both filename formats, full path, missing prefix, malformed timestamp) and the structured load result formatting
 
 Shared fixtures live in `conftest.py`. The CI workflow in `.github/workflows/ci.yml` runs the full suite on every push and pull request to master.
 
@@ -283,6 +295,10 @@ Adding a genuinely new API field is a deliberate one-line change to `FORECAST_CO
 ---
 
 ## Incident Log
+
+> Entries below describe the pipeline as it was at the time. The separate
+> `dbt_run` and `dbt_test` tasks referenced here were later consolidated into a
+> single `dbt_build` task.
 
 ### June 2026 — cascading failure from schema change and backfill
 
@@ -410,12 +426,24 @@ python -m src.main
 ### Backfill existing CSV files
 
 ```bash
-docker compose exec airflow-scheduler bash -c "
-  for f in /opt/airflow/data/raw/output_*.csv; do
-    python -m src.postgres_loader file --file-path \"\$f\"
-  done
-"
+make backfill
 ```
+
+Equivalent to `docker compose exec airflow-scheduler python -m src.postgres_loader all`, which walks every `output_*.csv` in `data/raw/` and loads the ones not already ingested. `skip_if_loaded` keys on the filename, so re-running is safe and will not duplicate rows.
+
+### Makefile shortcuts
+
+The most common commands are wrapped in a `Makefile`:
+
+| Target | What it does |
+|---|---|
+| `make up` / `make down` | Start or stop the stack |
+| `make restart` | Recreate the stack |
+| `make logs` | Tail the scheduler logs |
+| `make trigger` | Trigger the DAG |
+| `make backfill` | Load every unloaded CSV in `data/raw/` |
+| `make dbt-run` / `make dbt-test` / `make dbt-fresh` | Run dbt phases individually in the container |
+| `make psql` | Open a psql shell on the warehouse |
 
 ---
 
@@ -454,8 +482,13 @@ docker compose exec airflow-scheduler bash -c "cd /opt/airflow/dbt && dbt docs g
 
 ## Sample Output (raw CSV)
 
+Files land in `data/raw/` named `output_YYYYMMDD_HHMMSS_ffffff.csv`, for example `output_20260916_213806_623756.csv`. The microsecond component keeps two runs starting in the same second from resolving to the same path. Each file is written to a temp file and then atomically renamed into place, so a partially written CSV is never visible to the loader.
+
+Columns are always the same 34 in the same order, per the contract in `src/schema.py`, regardless of which optional fields the API returned:
+
 ```
-dt,visibility,pop,dt_txt,main_temp,main_feels_like,main_humidity,wind_speed,city_name,city_country,weather_main,...
-1778284800,10000,0.2,2026-05-09 00:00:00,60.51,58.57,49,7.07,New York,US,Rain,...
-1778295600,10000,0.0,2026-05-09 03:00:00,58.73,56.93,56,5.03,New York,US,Clouds,...
+dt,visibility,pop,dt_txt,main_temp,main_feels_like,main_temp_min,main_temp_max,main_pressure,main_sea_level,main_grnd_level,main_humidity,main_temp_kf,main_dew_point,clouds_all,wind_speed,wind_deg,wind_gust,sys_pod,rain_3h,snow_3h,city_id,...
+1789603200,10000,0.0,2026-09-17 00:00:00,75.83,76.44,74.12,75.83,1025,1025,1021,71,0.95,65.77,65,3.98,145,7.87,n,,,5128581,...
 ```
+
+The two empty fields before `city_id` are `rain_3h` and `snow_3h`, absent from the API payload on a dry day and filled with nulls rather than dropped.
