@@ -54,6 +54,11 @@ def get_engine() -> Engine:
     return create_engine(db_url)
 
 
+# Microsecond form first, since that is what load.py writes now. The second
+# form is kept so files written before the change still parse.
+SOURCE_FILE_TS_FORMATS = ("%Y%m%d_%H%M%S_%f", "%Y%m%d_%H%M%S")
+
+
 def parse_source_file_ts(file_name: str) -> datetime:
     stem = Path(file_name).stem
 
@@ -61,7 +66,14 @@ def parse_source_file_ts(file_name: str) -> datetime:
         raise ValueError(f"Unexpected file name format: {file_name}")
 
     ts_part = stem.replace("output_", "", 1)
-    return datetime.strptime(ts_part, "%Y%m%d_%H%M%S")
+
+    for ts_format in SOURCE_FILE_TS_FORMATS:
+        try:
+            return datetime.strptime(ts_part, ts_format)
+        except ValueError:
+            continue
+
+    raise ValueError(f"Unexpected file name format: {file_name}")
 
 
 def ensure_raw_schema(engine: Engine) -> None:

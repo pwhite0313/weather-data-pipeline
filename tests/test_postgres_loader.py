@@ -33,6 +33,20 @@ class TestParseSourceFileTs:
         with pytest.raises(ValueError):
             parse_source_file_ts("output_not_a_date.csv")
 
+    def test_microsecond_filename_is_parsed(self):
+        # The collision-safe format load.py writes now.
+        result = parse_source_file_ts("output_20260509_143022_123456.csv")
+        assert result == datetime(2026, 5, 9, 14, 30, 22, 123456)
+
+    def test_legacy_second_precision_filename_still_parsed(self):
+        # Files written before the microsecond format must keep loading.
+        result = parse_source_file_ts("output_20260509_143022.csv")
+        assert result == datetime(2026, 5, 9, 14, 30, 22)
+
+    def test_trailing_garbage_still_raises(self):
+        with pytest.raises(ValueError, match="Unexpected file name format"):
+            parse_source_file_ts("output_20260509_143022_notmicroseconds.csv")
+
 
 class TestFormatLoadResult:
     def test_loaded_result_renders_counts_and_target(self):

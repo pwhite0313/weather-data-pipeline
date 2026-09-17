@@ -52,10 +52,10 @@ def weather_forecast_pipeline():
 
     @task
     def load(clean_data):
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_path = f"/opt/airflow/data/raw/output_{timestamp}.csv"
-        load_records(clean_data, output_path)
-        return output_path
+        # Path and filename are left to load_records so the collision-safe
+        # naming lives in one place. RAW_DATA_DIR resolves to
+        # /opt/airflow/data/raw inside the container.
+        return load_records(clean_data)
 
     @task
     def load_raw_table(file_path: str):
