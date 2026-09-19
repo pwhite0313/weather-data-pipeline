@@ -14,7 +14,7 @@ __pycache__/
 
 # Virtual environments
 venv/
-airflow_venv
+airflow_venv/
 
 # Secrets. `.env` alone does not cover backups or per-environment variants
 # like .env.bak / .env.local, each of which holds a real API key.
@@ -26,7 +26,8 @@ airflow_venv
 .ipynb_checkpoints/
 
 # Data output
-data/
+data/*
+!data/.gitkeep
 
 # Airflow-generated files
 airflow.db
@@ -40,3 +41,17 @@ testing.py
 
 # Editor
 .vscode/
+
+# Keys. Never committed. See keys/README.md for regenerating.
+keys/*
+!keys/README.md
+*.p8
+*.pem
+
+# dbt
+profiles.yml
+.dbt/
+
+# OS
+.DS_Store
+.idea/
