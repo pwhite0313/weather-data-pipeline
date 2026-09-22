@@ -4,7 +4,7 @@ sources:
   - name: raw
     database: weather_db
     description: "Raw weather forecast snapshots loaded from timestamped Airflow CSV outputs."
-    schema: raw
+    schema: "{{ 'RAW' if target.type == 'snowflake' else 'raw' }}"
     tables:
       - name: weather_forecast
         description: "Append-only raw forecast table populated from files like output_YYYYMMDD_HHMMSS_ffffff.csv."

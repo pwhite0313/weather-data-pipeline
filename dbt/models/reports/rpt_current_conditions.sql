@@ -3,7 +3,7 @@
 with candidates as (
     select *
     from {{ ref('int_weather_enriched') }}
-    where local_dt between now() - interval '4 hours' and now() + interval '4 hours'
+    where local_dt between {{ dbt.current_timestamp() }} - interval '4 hours' and {{ dbt.current_timestamp() }} + interval '4 hours'
 ),
 
 ranked as (
@@ -11,7 +11,7 @@ ranked as (
         *,
         ROW_NUMBER() OVER (
             PARTITION BY city_id
-            ORDER BY ABS(EXTRACT(EPOCH FROM (local_dt - now())))
+            ORDER BY ABS({{ dbt.datediff("local_dt", dbt.current_timestamp(), "second") }})
         ) as rn
     from candidates
 )
