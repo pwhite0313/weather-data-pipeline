@@ -122,8 +122,9 @@ models:
         tests:
           - not_null
           - relationships:
-              to: ref('dim_city')
-              field: city_id
+              arguments:
+                to: ref('dim_city')
+                field: city_id
 
       - name: city_name
         description: "City name."

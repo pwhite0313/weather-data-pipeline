@@ -23,18 +23,21 @@ models:
         tests:
           - not_null
           - accepted_values:
-              values: ['freezing', 'cold', 'mild', 'warm', 'hot']
+              arguments:
+                values: ['freezing', 'cold', 'mild', 'warm', 'hot']
 
       - name: wind_category
         description: "Wind category derived from wind_speed (mph): calm / light / moderate / strong / storm."
         tests:
           - not_null
           - accepted_values:
-              values: ['calm', 'light', 'moderate', 'strong', 'storm']
+              arguments:
+                values: ['calm', 'light', 'moderate', 'strong', 'storm']
 
       - name: precip_type
         description: "Precipitation type derived from rain_3h and snow_3h: none / rain / snow / rain_and_snow."
         tests:
           - not_null
           - accepted_values:
-              values: ['none', 'rain', 'snow', 'rain_and_snow']
+              arguments:
+                values: ['none', 'rain', 'snow', 'rain_and_snow']
