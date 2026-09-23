@@ -8,10 +8,11 @@ sources:
     tables:
       - name: weather_forecast
         description: "Append-only raw forecast table populated from files like output_YYYYMMDD_HHMMSS_ffffff.csv."
-        loaded_at_field: ingested_at
-        freshness:
-          warn_after: {count: 25, period: hour}
-          error_after: {count: 49, period: hour}
+        config:
+          loaded_at_field: ingested_at
+          freshness:
+            warn_after: {count: 2, period: hour}
+            error_after: {count: 3, period: hour}
         columns:
           - name: city_id
             description: "Unique city identifier from the OpenWeatherMap API."
