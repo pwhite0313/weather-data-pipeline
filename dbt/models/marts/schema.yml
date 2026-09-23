@@ -168,6 +168,10 @@ models:
         description: "Wind speed."
         tests:
           - not_null
+          - is_non_negative:
+              config:
+                severity: warn
+                store_failures: true
 
       - name: wind_gust
         description: "Wind gust speed."
