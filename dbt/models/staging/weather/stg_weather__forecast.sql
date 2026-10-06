@@ -36,8 +36,11 @@ WITH ranked AS (
         ingested_at,
         ROW_NUMBER() OVER (
             PARTITION BY city_id::bigint, to_timestamp(dt)::timestamptz
-            ORDER BY ingested_at DESC
-        ) AS row_num
+            ORDER BY ingested_at DESC NULLS LAST, source_file_name DESC
+        ) AS row_num,
+        COUNT(*) OVER (
+            PARTITION BY city_id::bigint, to_timestamp(dt)::timestamptz, ingested_at
+        ) AS tie_count
     FROM {{ source('raw', 'weather_forecast') }}
 )
 
@@ -75,6 +78,7 @@ SELECT
     weather_main,
     weather_description,
     weather_icon,
-    ingested_at
+    ingested_at,
+    tie_count
 FROM ranked
 WHERE row_num = 1
