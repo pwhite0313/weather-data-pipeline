@@ -1,6 +1,28 @@
 # Weather Data ELT Pipeline
 
-ELT pipeline that pulls live weather forecast data from the OpenWeatherMap API across 15 cities, loads it into PostgreSQL, and transforms it into analytics-ready models using dbt — all orchestrated by Airflow running in Docker. Built to practice the kind of reliability and operational detail that matters in production: idempotent loads, data quality gates, schema drift handling, and CI via GitHub Actions.
+ELT pipeline that pulls live weather forecast data from the OpenWeatherMap API across 15 cities, loads it into PostgreSQL, and transforms it into analytics-ready models using dbt — all orchestrated by Airflow running in Docker. The dbt project also runs against Snowflake, with account setup, RBAC, and a key-pair service user versioned in `setup/`. Built to practice the kind of reliability and operational detail that matters in production: idempotent loads, data quality gates, schema drift handling, and CI via GitHub Actions.
+
+---
+
+## Contents
+
+- [Key Engineering Features](#key-engineering-features)
+- [Architecture](#architecture)
+- [Screenshots](#screenshots)
+- [Quality and Reliability](#quality-and-reliability)
+- [Tech Stack](#tech-stack)
+- [dbt Models](#dbt-models)
+- [Repository Structure](#repository-structure)
+- [Database Schema](#database-schema)
+- [Failure Handling](#failure-handling)
+- [Testing](#testing)
+- [Known Limitations](#known-limitations)
+- [Incident Log](#incident-log)
+- [Setup](#setup)
+- [Running the Pipeline](#running-the-pipeline)
+- [dbt](#dbt)
+- [Snowflake](#snowflake)
+- [Sample Output (raw CSV)](#sample-output-raw-csv)
 
 ---
 
@@ -10,9 +32,12 @@ ELT pipeline that pulls live weather forecast data from the OpenWeatherMap API a
 - **Idempotent loads** — Filename-keyed deduplication prevents duplicate ingestion across retries and backfills
 - **Volume anomaly detection** — Each run's row count is compared against a 7-run rolling average; runs loading more than 50% fewer rows than the baseline fail before transformation begins
 - **Schema contract enforcement** — A canonical column and dtype contract keeps the raw table's shape identical no matter which optional fields the API returned that day; unknown fields are dropped and logged rather than crashing the pipeline
-- **Layered dbt architecture** — Staging, intermediate, mart, and report layers with clear separation of concerns and an incremental fact model driven by an `ingested_at` load watermark
-- **51 dbt schema tests** — Uniqueness, not-null, range, accepted-value, and referential integrity checks enforced across the warehouse
-- **Staging deduplication** — Overlapping forecast windows across DAG runs resolved in the staging model using `ROW_NUMBER()`
+- **Layered dbt architecture** — Staging, intermediate, mart, and report layers with clear separation of concerns and an incremental fact model that merges on `(city_id, local_dt)` behind an `ingested_at` load watermark
+- **53 dbt tests** — 52 schema tests (uniqueness, not-null, range, accepted-value, referential integrity, and a custom `is_non_negative` generic) plus a singular test that catches forecasts outside their own min/max band
+- **Source freshness gate** — `dbt source freshness` runs before `dbt build`, so stale raw data fails the run instead of producing stale marts
+- **Deterministic staging deduplication** — Overlapping forecast windows across DAG runs resolved with `ROW_NUMBER()` ordered by `ingested_at` then `source_file_name`, with a `tie_count` column that surfaces rows the tie-breakers could not separate
+- **City history snapshot** — A dbt snapshot tracks changes to city name and population over time (type 2)
+- **Snowflake port** — The same dbt project runs unchanged against Postgres or Snowflake via a `DBT_TARGET` switch; account, warehouse, RBAC, and key-pair auth are scripted in `setup/`
 - **CI/CD via GitHub Actions** — Automated pytest suite runs on every push to master
 - **58 pytest unit tests** — Validates transform logic, the raw schema contract, volume anomaly thresholds, atomic CSV writes, and file timestamp parsing
 - **Structured logging** — Python `logging` module throughout the ingestion layer; Airflow task logs capture full run context including `dag_run_id`
@@ -27,12 +52,16 @@ graph TD
     A["OpenWeatherMap REST API\n15 cities · 5-day forecast · 3-hour intervals"] --> B["Python Ingestion Layer\nclient · extract · transform · load"]
     B --> C["CSV Landing Zone\ndata/raw/ · immutable source record"]
     C --> D["PostgreSQL · raw.weather_forecast\nrow count validation · volume anomaly check"]
-    D --> E["dbt Staging\nstg_weather__forecast\ntype casting · deduplication · UTC normalization"]
+    D --> D2["dbt Source Freshness\nwarn after 25h · error after 7d"]
+    D2 --> E["dbt Staging\nstg_weather__forecast\ntype casting · deduplication · UTC normalization"]
+    E --> E2["dbt Snapshot\nsnp_city\ncity name and population history"]
     E --> F["dbt Intermediate\nint_weather_enriched\nderived categories"]
     F --> G["dbt Marts\ndim_city · fct_weather_forecast · fct_weather_daily"]
     G --> H["dbt Reports\nrpt_current_conditions\ncurrent conditions per city"]
-    H --> I["dbt Tests\n51 schema tests · data contracts"]
+    H --> I["dbt Tests\n53 tests · schema, singular and custom generic"]
 ```
+
+The warehouse is PostgreSQL in the Docker stack. The dbt layer is target-agnostic and also runs against Snowflake, see [Snowflake](#snowflake).
 
 ---
 
@@ -48,9 +77,9 @@ graph TD
 
 ## Quality and Reliability
 
-The pipeline runs three data quality checks before dbt ever touches the data: a row count validation, a volume anomaly check (current run compared against a 7-run rolling average), and dbt schema tests on the way out. If any of them fail, the run stops there.
+The pipeline runs four data quality gates in sequence: a row count validation, a volume anomaly check (current run compared against a 7-run rolling average), a `dbt source freshness` check on `raw.weather_forecast`, and dbt tests interleaved with every model build. If any of them fail, the run stops there.
 
-Every row in the warehouse carries `source_file_name`, `ingested_at`, and `dag_run_id` — enough to trace any row back to the exact API call that produced it. Loads are idempotent, so backfilling a missed run or retrying a failed one is safe without cleanup. The 6 dbt models have 51 schema tests across uniqueness, not-null, range, and referential integrity checks. There are also 58 pytest unit tests covering transform logic, the raw schema contract, volume anomaly thresholds, atomic CSV writes, and timestamp parsing, run automatically on every push via GitHub Actions.
+Every row in the warehouse carries `source_file_name`, `ingested_at`, and `dag_run_id` — enough to trace any row back to the exact API call that produced it. Loads are idempotent, so backfilling a missed run or retrying a failed one is safe without cleanup. The 6 dbt models and 1 snapshot have 53 tests: 52 schema tests across uniqueness, not-null, range, accepted-value, and referential integrity checks (including a custom `is_non_negative` generic), plus one singular test asserting that `main_temp` sits within its own `main_temp_min` and `main_temp_max`. There are also 58 pytest unit tests covering transform logic, the raw schema contract, volume anomaly thresholds, atomic CSV writes, and timestamp parsing, run automatically on every push via GitHub Actions.
 
 ---
 
@@ -59,8 +88,8 @@ Every row in the warehouse carries `source_file_name`, `ingested_at`, and `dag_r
 | Category | Tools |
 |---|---|
 | Orchestration | Apache Airflow |
-| Transformation | dbt (dbt-postgres) |
-| Warehouse | PostgreSQL |
+| Transformation | dbt (dbt-postgres · dbt-snowflake) |
+| Warehouse | PostgreSQL · Snowflake |
 | Compute | Docker · Docker Compose |
 | Language | Python · SQL |
 | Libraries | pandas · SQLAlchemy · psycopg2 · pytest |
@@ -72,12 +101,15 @@ Every row in the warehouse carries `source_file_name`, `ingested_at`, and `dag_r
 
 | Layer | Model | Description |
 |---|---|---|
-| Staging | `stg_weather__forecast` | Type casting, deduplication, UTC normalization |
+| Staging | `stg_weather__forecast` | Type casting, deterministic deduplication, UTC normalization |
+| Snapshot | `snp_city` | Type 2 history of city name and population, keyed on `city_id` |
 | Intermediate | `int_weather_enriched` | Derived temp, wind, and precipitation categories |
 | Mart | `dim_city` | City dimension, one row per city |
-| Mart | `fct_weather_forecast` | Incremental 3-hour forecast fact table |
+| Mart | `fct_weather_forecast` | Incremental 3-hour forecast fact table, merge on `(city_id, local_dt)` |
 | Mart | `fct_weather_daily` | Daily aggregate (avg/min/max temp, precipitation totals) |
 | Report | `rpt_current_conditions` | Current conditions view, one row per city |
+
+Tests live in two places: generic tests are declared in each layer's `schema.yml`, and `dbt/tests/` holds the singular test `assert_temp_within_min_max.sql` and the custom generic `is_non_negative`.
 
 ---
 
@@ -108,11 +140,29 @@ weather_pipeline/
 │   │   │   └── schema.yml
 │   │   └── reports/
 │   │       └── rpt_current_conditions.sql # Latest forecast per city
+│   ├── snapshots/
+│   │   └── snp_city.sql                   # Type 2 history of city name and population
+│   ├── tests/
+│   │   ├── assert_temp_within_min_max.sql # Singular test on fct_weather_forecast
+│   │   └── generic/
+│   │       └── is_non_negative.sql        # Custom generic test
 │   ├── macros/
 │   │   └── generate_schema_name.sql       # Prevents dbt from prepending target schema
-│   ├── profiles.yml                       # dev and prod targets
+│   ├── profiles.yml                       # dev, prod and snowflake targets
 │   ├── dbt_project.yml
 │   └── packages.yml
+├── setup/                             # Snowflake account bootstrap, run once in order
+│   ├── 00_account.sql                 # Timezone, resource monitor
+│   ├── 01_warehouses.sql              # LOAD_WH and TRANSFORM_WH
+│   ├── 02_database.sql                # WEATHER_DB and its schemas
+│   ├── 03_roles_and_grants.sql        # WEATHER_ENGINEER role and grants
+│   ├── 04_service_user.sql            # WEATHER_SVC with key-pair auth
+│   ├── 05_raw_tables.sql              # RAW.WEATHER_FORECAST
+│   ├── 06_stage.sql                   # CSV file format and internal stage
+│   └── load/
+│       └── copy_raw_tables.sql        # COPY INTO from the stage
+├── keys/                              # RSA key pair for WEATHER_SVC; only the README is committed
+│   └── README.md
 ├── tests/
 │   ├── conftest.py                    # Shared pytest fixtures
 │   ├── test_transform.py              # Transform logic unit tests
@@ -133,7 +183,8 @@ weather_pipeline/
 │   └── utils.py
 ├── docs/
 │   ├── airflow_dag.png                # Airflow DAG graph
-│   └── dbt_lineage.png                # dbt lineage graph
+│   ├── dbt_lineage.png                # dbt lineage graph
+│   └── postgres_to_snowflake.md       # Working log of the Snowflake port
 ├── config/
 │   └── airflow.cfg
 ├── docker-compose.yml
@@ -193,7 +244,10 @@ The 34 API columns are fixed by the contract in `src/schema.py`, so this shape d
 The last four are pipeline metadata added at load time, not API fields.
 
 ### staging.stg_weather__forecast
-dbt staging model. Casts all columns to correct types, normalizes timestamps to UTC, trims strings, and deduplicates by keeping the most recent ingestion for each `city_id` + `dt_utc` combination.
+dbt staging model. Casts all columns to correct types, normalizes timestamps to UTC, trims strings, and deduplicates to one row per `city_id` + `dt_utc`. The winner is chosen by `ROW_NUMBER()` ordered by `ingested_at DESC NULLS LAST`, then `source_file_name DESC` as a tie-breaker, so two runs over the same raw data always pick the same row. A `tie_count` column records how many rows shared the winning `ingested_at`; anything above 1 means the tie-breaker had to decide, which is worth knowing when a value looks surprising.
+
+### snapshots.snp_city
+dbt snapshot with `strategy='check'` on `city_name` and `city_population`, keyed on `city_id`. Each time either value changes, the previous row is closed with `dbt_valid_to` and a new one is opened, giving a type 2 history of the city metadata the API returns.
 
 ### intermediate.int_weather_enriched
 Adds derived categorical columns on top of the staging model: `temp_category` (freezing / cold / mild / warm / hot), `wind_category` (calm / light / moderate / strong / storm), and `precip_type` (none / rain / snow / rain_and_snow).
@@ -202,7 +256,9 @@ Adds derived categorical columns on top of the staging model: `temp_category` (f
 City dimension table. One row per city, deduplicated using `ROW_NUMBER()` ordered by most recent forecast.
 
 ### analytics.fct_weather_forecast
-Incremental 3-hour forecast fact table. Each run reads staging from the newest `ingested_at` already present in the table, so prior batches are not rescanned, and the `unique_key` of `(city_id, local_dt)` upserts rather than appends. That combination means a forecast the API later revises replaces its earlier row instead of being discarded as a duplicate.
+Incremental 3-hour forecast fact table using `incremental_strategy='merge'` on `(city_id, local_dt)`. Each run takes staging rows whose `ingested_at` is at or after the newest one already in the table, then merges them: existing keys are updated, new keys are inserted. That is why staging dedupe and the merge are both needed. Staging picks one winner per forecast slot from everything in raw, and the merge reconciles that winner with the version a previous run already stored. A forecast the API later revises replaces its earlier row instead of being discarded as a duplicate.
+
+The watermark limits what gets written, not what gets read. Staging is a view, and Postgres cannot push the `ingested_at` filter below the window function, so every run still ranks all of raw. Fine at this volume; the fix if raw grows is to filter raw before ranking.
 
 ### analytics.fct_weather_daily
 Daily aggregate fact. Rolls up the 3-hour forecasts to one row per `city_id` + calendar date: avg/min/max temp, avg humidity, avg wind speed, total rain and snow.
@@ -227,6 +283,10 @@ To simulate: temporarily add `del data[0]["city"]` in `transform.py` before `val
 **Volume anomaly failure** — the `volume_anomaly_check` task compares the current run's row count against a 7-run rolling average. If the current run loads more than 50% fewer rows than the rolling average, the DAG fails before dbt runs. The error message includes the `dag_run_id` so the anomalous run can be identified and inspected in the warehouse. The check is skipped automatically if fewer than 3 prior runs exist.
 
 To simulate: temporarily set `ANOMALY_THRESHOLD_RATIO = 1.1` in `src/quality_checks.py` and trigger the DAG. It will fail at `volume_anomaly_check` with a clear message including the run ID. Restore to `0.5` after verifying.
+
+**Source freshness failure** — the `dbt_source_freshness` task checks `max(ingested_at)` on `raw.weather_forecast` against the thresholds in `weather_sources.yml`: warn after 25 hours, error after 7 days. A warning is logged and the DAG continues; an error fails the task before `dbt_build` runs, so models are never rebuilt on top of a raw table that stopped receiving data.
+
+To simulate: temporarily set `error_after: {count: 1, period: minute}` in `dbt/models/staging/weather/weather_sources.yml` and run `make dbt-fresh`. Restore the 7-day value after verifying.
 
 **Data quality failure** — the `dbt_build` task runs and tests each model in dependency order, enforcing uniqueness, not-null checks, and range validation as it goes. Because tests run interleaved with the models rather than after all of them, a failing test on the staging model stops the marts and reports from being built on data already known to be bad.
 
@@ -319,6 +379,32 @@ The `dbt_test` task failed on not-null constraints for `city_id`, preventing the
 
 **Fix 3 — data patch:**
 The 320 rows were patched directly in `raw.weather_forecast` using a CTE UPDATE that sourced city values from valid rows with matching structure. The original CSVs were left untouched as the permanent record of what the API returned at that time. After patching, `dbt_run` and `dbt_test` both passed and the incremental model picked up all backfilled rows automatically.
+
+### September 2026 — porting the dbt project to Snowflake
+
+**What happened:**
+The first `dbt run --target snowflake` against a freshly scripted account failed three times in a row, each for a different reason. Five of the six models compiled and ran unchanged. The failures were one configuration mismatch and two Postgres-only functions in a single report model. The full log, with each error as dbt printed it, is in `docs/postgres_to_snowflake.md`.
+
+**Failure 1 — schema privileges:**
+`Insufficient privileges to operate on database 'WEATHER_DB'. Your primary role WEATHER_ENGINEER must have CREATE SCHEMA granted`. The dbt project configures its schemas as `analytics`, `intermediate` and `reports`, but `setup/02_database.sql` had created `MARTS` and nothing for the other two. The custom `generate_schema_name` macro passes the custom schema through verbatim, so dbt looked for `ANALYTICS`, did not find it, and tried to create it. `WEATHER_ENGINEER` is deliberately not allowed to create schemas.
+
+**Fix 1:**
+`02_database.sql` was changed to create `ANALYTICS`, `INTERMEDIATE` and `REPORTS`, `MARTS` was dropped, and `03_roles_and_grants.sql` was updated to grant usage and create table/view on each. The role still cannot create schemas. That restriction is what surfaced the drift between the dbt config and the warehouse layout, which is the behaviour wanted from a least-privilege service role.
+
+**Failure 2 — `now()`:**
+`Unknown functions NOW, NOW` in `rpt_current_conditions`. Postgres has `now()`; Snowflake does not.
+
+**Fix 2:**
+Replaced both calls with `{{ dbt.current_timestamp() }}`, which dbt compiles to the correct function for whichever adapter is active.
+
+**Failure 3 — `EXTRACT(EPOCH ...)`:**
+`invalid value [EPOCH] for parameter 'EXTRACT date/time part'`, again in `rpt_current_conditions`. The model ranks forecasts by distance from the current time using `ABS(EXTRACT(EPOCH FROM (local_dt - now())))`. In Postgres subtracting two timestamps yields an interval and `EXTRACT(EPOCH)` converts it to seconds. Snowflake has no interval type, so there is nothing to extract from.
+
+**Fix 3:**
+Replaced with `{{ dbt.datediff("local_dt", dbt.current_timestamp(), "second") }}`. On Postgres this compiles back to the original epoch arithmetic; on Snowflake it becomes `DATEDIFF(second, ...)`.
+
+**Outcome:**
+All six models and the test suite pass on both targets from the same SQL. No model carries adapter-specific branches; the only `target.type` check in the project is the source schema name (`RAW` versus `raw`) in `weather_sources.yml`.
 
 ---
 
@@ -484,7 +570,9 @@ dbt build --profiles-dir ~/.dbt
 
 ### Target switching (dev / prod)
 
-The `DBT_TARGET` environment variable controls which `profiles.yml` target is used. It defaults to `dev`. Set `DBT_TARGET=prod` in the Airflow environment (or CI) to run against the production warehouse.
+The `DBT_TARGET` environment variable controls which `profiles.yml` target is used. There are three: `dev` and `prod` are Postgres, `snowflake` is Snowflake. The profile defaults to `dev`, but `docker-compose.yml` sets `DBT_TARGET=snowflake` for the Airflow containers, so the DAG currently runs dbt against Snowflake. Override it in `.env` to point the DAG back at the local Postgres warehouse.
+
+Models that differ between the two databases are handled with `target.type` checks rather than duplicate SQL, for example the source schema is `RAW` on Snowflake and `raw` on Postgres.
 
 ### Lineage
 
@@ -492,11 +580,69 @@ The `DBT_TARGET` environment variable controls which `profiles.yml` target is us
 
 `raw.weather_forecast` → `stg_weather__forecast` → `int_weather_enriched` → `fct_weather_forecast` / `fct_weather_daily` / `rpt_current_conditions`
 
+`stg_weather__forecast` also feeds the `snp_city` snapshot and `dim_city`.
+
 To regenerate docs:
 
 ```bash
 docker compose exec airflow-scheduler bash -c "cd /opt/airflow/dbt && dbt docs generate --profiles-dir /opt/airflow/dbt"
 ```
+
+---
+
+## Snowflake
+
+The dbt project runs against a Snowflake account as well as the local Postgres warehouse. Everything needed to stand the account up is versioned in `setup/`, numbered in the order it has to run:
+
+| Script | Role | What it does |
+|---|---|---|
+| `00_account.sql` | ACCOUNTADMIN | Sets the account timezone to UTC and creates a `TRIAL_GUARD` resource monitor with a credit quota |
+| `01_warehouses.sql` | SYSADMIN | `LOAD_WH` for COPY INTO and `TRANSFORM_WH` for dbt, both XSMALL with auto-suspend |
+| `02_database.sql` | SYSADMIN | `WEATHER_DB` with `RAW`, `STAGING`, `INTERMEDIATE`, `ANALYTICS` and `REPORTS` schemas; drops `PUBLIC` |
+| `03_roles_and_grants.sql` | USERADMIN / SECURITYADMIN / SYSADMIN | `WEATHER_ENGINEER` role with usage on both warehouses, create table and view on every schema, and future select/insert grants on `RAW` |
+| `04_service_user.sql` | USERADMIN | `WEATHER_SVC`, a `TYPE = SERVICE` user with key-pair auth and no password |
+| `05_raw_tables.sql` | WEATHER_ENGINEER | `RAW.WEATHER_FORECAST` with the same 34 columns plus metadata as the Postgres table |
+| `06_stage.sql` | WEATHER_ENGINEER | CSV and JSON file formats and the internal stages they attach to |
+| `load/copy_raw_tables.sql` | WEATHER_ENGINEER | `COPY INTO RAW.WEATHER_FORECAST` from the stage, `ON_ERROR = ABORT_STATEMENT` |
+
+Separate load and transform warehouses mean a long COPY cannot contend with dbt, and each shows up as its own line in cost reporting. The service user has no password, so the only way to authenticate as it is with the private key, which is never committed.
+
+### Key-pair auth
+
+Generate the pair once and register the public half on the service user. `keys/README.md` has the two `openssl` commands. Paste the body of `rsa_key.pub` into `RSA_PUBLIC_KEY` in `setup/04_service_user.sql` before running it, then point `SNOWFLAKE_PRIVATE_KEY_PATH` at the `.p8` file. `keys/` is gitignored except for its README, and `docker-compose.yml` mounts it read-only into the Airflow containers at `/opt/airflow/keys`.
+
+### Environment variables
+
+In addition to the Postgres variables, `.env.example` lists what the `snowflake` target reads:
+
+```
+SNOWFLAKE_ACCOUNT=your-org-your-account   # ORGNAME-ACCOUNTNAME, not the locator
+SNOWFLAKE_USER=WEATHER_SVC
+SNOWFLAKE_ROLE=WEATHER_ENGINEER
+SNOWFLAKE_WAREHOUSE=TRANSFORM_WH
+SNOWFLAKE_DATABASE=WEATHER_DB
+SNOWFLAKE_PRIVATE_KEY_PATH=/absolute/path/to/keys/rsa_key.p8
+DBT_TARGET=snowflake
+```
+
+`SNOWFLAKE_ACCOUNT` is the `ORGNAME-ACCOUNTNAME` form from `SELECT CURRENT_ORGANIZATION_NAME(), CURRENT_ACCOUNT_NAME();`, with underscores replaced by hyphens. The account locator in the URL does not work with the dbt adapter.
+
+### Running dbt against Snowflake
+
+From the host:
+
+```bash
+set -a; source .env; set +a
+cd dbt
+dbt deps
+dbt build --target snowflake
+```
+
+Inside the Airflow stack no override is needed, because `docker-compose.yml` already sets `DBT_TARGET=snowflake`.
+
+### Current state of the port
+
+The Airflow `load_raw_table` task still writes to Postgres. `RAW.WEATHER_FORECAST` in Snowflake was populated once from a Postgres export through the internal stage and `copy_raw_tables.sql`, and the dbt layer builds on top of that. Until the load task writes to Snowflake directly, the source freshness `error_after` is set to 7 days rather than something tighter, so a day without a reload does not fail the DAG. `docs/postgres_to_snowflake.md` is the working log of the port: every compile error encountered, what caused it, and how each model was changed to run on both databases.
 
 ---
 
