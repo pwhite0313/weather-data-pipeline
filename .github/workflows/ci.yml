@@ -30,3 +30,26 @@ jobs:
           WAREHOUSE_PASSWORD: test_pass
           WAREHOUSE_HOST: localhost
           WAREHOUSE_DB: test_db
+
+  gitleaks:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install gitleaks
+        env:
+          GITLEAKS_VERSION: 8.30.1
+        run: |
+          cd /tmp
+          curl -sSLO https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz
+          curl -sSLO https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_checksums.txt
+          grep linux_x64 gitleaks_${GITLEAKS_VERSION}_checksums.txt | sha256sum -c
+          tar xzf gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz gitleaks
+          sudo install gitleaks /usr/local/bin/
+
+      - name: Scan full git history
+        run: gitleaks git --redact -v .
+
