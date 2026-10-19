@@ -1,0 +1,6 @@
+# Airflow 3 secrets from config/airflow.cfg, committed in f860cad (2026-03-19).
+# Rotated 2026-10-19 and the file is no longer tracked. The old values are
+# burnt and unlock nothing; history was kept on purpose. See docs/security.md.
+f860cadf59af27e0c7ac87ab0048de98ebc90087:config/airflow.cfg:generic-api-key:165
+f860cadf59af27e0c7ac87ab0048de98ebc90087:config/airflow.cfg:generic-api-key:1204
+f860cadf59af27e0c7ac87ab0048de98ebc90087:config/airflow.cfg:generic-api-key:1510
