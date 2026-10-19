@@ -1,5 +1,7 @@
 # Weather Data ELT Pipeline
 
+**Status (October 2026):** the dbt project runs on Snowflake. Loading into Snowflake through S3 and a storage integration, and hosting on EC2, are in progress.
+
 ELT pipeline that pulls live weather forecast data from the OpenWeatherMap API across 15 cities, loads it into PostgreSQL, and transforms it into analytics-ready models using dbt — all orchestrated by Airflow running in Docker. The dbt project also runs against Snowflake, with account setup, RBAC, and a key-pair service user versioned in `setup/`. Built to practice the kind of reliability and operational detail that matters in production: idempotent loads, data quality gates, schema drift handling, and CI via GitHub Actions.
 
 ---
@@ -184,9 +186,8 @@ weather_pipeline/
 ├── docs/
 │   ├── airflow_dag.png                # Airflow DAG graph
 │   ├── dbt_lineage.png                # dbt lineage graph
-│   └── postgres_to_snowflake.md       # Working log of the Snowflake port
-├── config/
-│   └── airflow.cfg
+│   ├── postgres_to_snowflake.md       # Working log of the Snowflake port
+│   └── security.md                    # Secret scan findings and remediation
 ├── docker-compose.yml
 ├── Dockerfile
 ├── requirements.txt                   # Pipeline dependencies
