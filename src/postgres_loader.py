@@ -9,6 +9,7 @@ import pandas as pd
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 
+from src.load import LINEAGE_COLUMNS
 from src.logging_config import setup_logging
 from src.schema import conform_to_schema
 from src.utils import RAW_DATA_DIR
@@ -179,6 +180,11 @@ def load_file(
     logger.info("Reading CSV")
     df = pd.read_csv(path)
     logger.info("Rows read from CSV: %s", len(df))
+
+    # CSVs now carry their own lineage columns for the S3 path. Drop them so the
+    # schema contract does not report them as unexpected; they are re-stamped
+    # below, with ingested_at meaning the Postgres load time as before.
+    df = df.drop(columns=LINEAGE_COLUMNS, errors="ignore")
 
     # Applied here as well as in transform so that CSVs written before the
     # schema contract existed still create a complete raw table. Runs before the

@@ -1,7 +1,12 @@
+import re
+from datetime import datetime
+from pathlib import Path
+
 import pandas as pd
 import pytest
 
-from src.load import load_records
+from src.load import LINEAGE_COLUMNS, load_records, output_file_name, stamp_lineage
+from src.schema import FORECAST_COLUMNS
 
 
 @pytest.fixture
@@ -64,3 +69,45 @@ class TestFilenameCollisions:
 
         written = load_records(records)
         assert parse_source_file_ts(written) is not None
+
+
+class TestStampLineage:
+    RUN_TS = datetime(2026, 10, 19, 18, 30, 0, 123456)
+
+    def test_lineage_columns_are_appended_last_in_table_order(self, records):
+        stamped = stamp_lineage(records, "output_x.csv", self.RUN_TS, "manual_1")
+        assert list(stamped.columns) == ["city_id", "main_temp", *LINEAGE_COLUMNS]
+
+    def test_values_come_from_the_one_run_timestamp(self, records):
+        stamped = stamp_lineage(records, "output_x.csv", self.RUN_TS, "manual_1")
+        row = stamped.iloc[0]
+        assert row["source_file_name"] == "output_x.csv"
+        assert row["source_file_ts"] == self.RUN_TS
+        assert row["ingested_at"] == self.RUN_TS
+        assert row["dag_run_id"] == "manual_1"
+
+    def test_input_frame_is_not_modified(self, records):
+        stamp_lineage(records, "output_x.csv", self.RUN_TS, "manual_1")
+        assert list(records.columns) == ["city_id", "main_temp"]
+
+    def test_restamping_keeps_one_set_of_columns_at_the_end(self, records):
+        once = stamp_lineage(records, "output_x.csv", self.RUN_TS, "manual_1")
+        twice = stamp_lineage(once, "output_y.csv", self.RUN_TS, "manual_2")
+        assert list(twice.columns) == ["city_id", "main_temp", *LINEAGE_COLUMNS]
+        assert twice.iloc[0]["source_file_name"] == "output_y.csv"
+
+
+class TestOutputFileName:
+    def test_uses_the_microsecond_format(self):
+        name = output_file_name(datetime(2026, 10, 19, 18, 30, 0, 123456))
+        assert name == "output_20261019_183000_123456.csv"
+
+
+class TestCsvMatchesSnowflakeRawTable:
+    # COPY maps CSV columns to RAW.WEATHER_FORECAST by position, so the CSV's
+    # columns must match the table's, names and order, not just names.
+    def test_csv_columns_match_setup_05_raw_tables(self):
+        sql = (Path(__file__).resolve().parents[1] / "setup" / "05_raw_tables.sql").read_text()
+        body = re.search(r"RAW\.WEATHER_FORECAST \((.*?)\);", sql, re.S).group(1)
+        table_columns = [line.split()[0].lower() for line in body.strip().splitlines()]
+        assert [*FORECAST_COLUMNS, *LINEAGE_COLUMNS] == table_columns

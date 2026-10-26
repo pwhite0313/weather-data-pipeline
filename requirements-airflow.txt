@@ -24,3 +24,4 @@ pandas
 psycopg2-binary
 pydantic
 dbt-snowflake==1.12.1
+boto3
