@@ -183,10 +183,14 @@ dedupe on `source_file_name` working.
   loaded since the manual PUT more than 7 days ago. Nothing feeds it yet. Do
   not loosen `error_after`; it goes green when the COPY path lands.
 
-### Still to do after this block
+After `docker compose build` and `up -d` (the containers were recreated, which
+is what picks up new `.env` values), a triggered DAG run went green through
+`upload_raw` and `upload_flat`. The bucket then held 32 objects: two runs of
+16, same `dt=2026-10-26` partition, different run timestamps
+(`20261026_175722` from the laptop, `20261026_181552` from the DAG). That is
+the one-name-per-run rule working.
 
-- Rebuild the Airflow image (`docker compose build`) so the DAG's upload tasks
-  have boto3, then trigger a DAG run and confirm a second set of objects.
+### Still to do after this block
 - Day 3: attach `extractor_write_policy.json` to an instance role, delete
   `weather-writer` and its keys, remove the keys from `.env`.
 - Storage integration (next block): read policy on `weather/*`, role trusting
