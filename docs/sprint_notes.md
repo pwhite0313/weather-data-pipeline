@@ -257,3 +257,22 @@ Snowflake can now read the bucket with no keys anywhere. What is missing is
 the COPY from `@RAW.S3_WEATHER_STAGE/flat/` into `RAW.WEATHER_FORECAST`, which
 replaces the manual PUT path in `setup/load/copy_raw_tables.sql`. Until it
 exists, `dbt_source_freshness` stays red.
+
+### End of day, 2026-10-27
+
+- **Where each block stopped.** Security: PRs #2 and #3 merged, nothing open.
+  S3 landing: PR #4 merged; `weather-writer` keys live only in `.env` (no
+  `~/.aws` credentials, nothing tracked), to be replaced by the instance role on
+  the EC2 day. Storage integration: PR #5, `LIST @RAW.S3_WEATHER_STAGE` proven
+  with 48 objects; no COPY from the external stage exists yet, and the manual
+  PUT path in `setup/load/copy_raw_tables.sql` is still the only load.
+- **Last error text.** `dbt_source_freshness`, scheduled run 2026-10-26,
+  attempt 3: `1 of 1 ERROR STALE freshness of raw.weather_forecast`. Expected:
+  nothing has loaded `RAW.WEATHER_FORECAST` on Snowflake since the manual PUT.
+- **First ten minutes of tomorrow.** In Snowsight as WEATHER_ENGINEER:
+  `LIST @RAW.S3_WEATHER_STAGE/flat/;` (expect 3 CSVs). Then one
+  `COPY INTO RAW.WEATHER_FORECAST FROM @RAW.S3_WEATHER_STAGE/flat/
+  FILE_FORMAT = (FORMAT_NAME = RAW.CSV_HEADER) PATTERN = '.*[.]csv'
+  ON_ERROR = ABORT_STATEMENT;` with no PURGE (S3 keeps the files; COPY's own
+  load history skips names it has seen). Check `COPY_HISTORY` for 3 files and
+  1800 rows, then `dbt source freshness --target snowflake` should pass.
