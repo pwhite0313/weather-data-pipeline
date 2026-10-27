@@ -276,3 +276,19 @@ exists, `dbt_source_freshness` stays red.
   ON_ERROR = ABORT_STATEMENT;` with no PURGE (S3 keeps the files; COPY's own
   load history skips names it has seen). Check `COPY_HISTORY` for 3 files and
   1800 rows, then `dbt source freshness --target snowflake` should pass.
+
+## Day 2: the stage and the Snowflake loader
+
+### Pipeline A: the flat stage and two file formats (2026-10-27)
+
+- `setup/08_s3_stage.sql` run as WEATHER_ENGINEER: `CSV_HEADER` altered to add
+  `NULL_IF = ('', 'NA', '-999')` and `ERROR_ON_COLUMN_COUNT_MISMATCH = TRUE`;
+  new `CSV_PARSE_HEADER` (PARSE_HEADER = TRUE) for the loader's
+  MATCH_BY_COLUMN_NAME; new stage `RAW.S3_FLAT_STAGE` at `weather/flat/`.
+  `LIST @RAW.S3_FLAT_STAGE` returned 3 rows, one CSV per run so far.
+- Created as WEATHER_ENGINEER rather than SYSADMIN plus a grant, to keep one
+  owner for everything in RAW.
+- TODO (Patrick): one line, in your own words, on why SKIP_HEADER cannot be
+  set alongside PARSE_HEADER. Do not read the comment in 08_s3_stage.sql first.
+- The fallback (PUT through EXPORT_STAGE if LIST failed at 3:00) was not
+  needed; the handshake was proven on day 1.
