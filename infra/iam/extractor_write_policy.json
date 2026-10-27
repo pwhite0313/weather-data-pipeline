@@ -1,0 +1,22 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "WriteUnderWeatherPrefix",
+      "Effect": "Allow",
+      "Action": "s3:PutObject",
+      "Resource": "arn:aws:s3:::pw-weather-2026/weather/*"
+    },
+    {
+      "Sid": "ListOnlyWeatherPrefix",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::pw-weather-2026",
+      "Condition": {
+        "StringLike": {
+          "s3:prefix": "weather/*"
+        }
+      }
+    }
+  ]
+}

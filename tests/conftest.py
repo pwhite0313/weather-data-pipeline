@@ -1,6 +1,20 @@
 import pytest
 
 
+class FakeS3Client:
+    # Stands in for boto3's S3 client: records each put_object call, no network.
+    def __init__(self):
+        self.calls = []
+
+    def put_object(self, **kwargs):
+        self.calls.append(kwargs)
+
+
+@pytest.fixture
+def fake_s3():
+    return FakeS3Client()
+
+
 @pytest.fixture
 def minimal_response():
     return [

@@ -14,6 +14,26 @@ logger = logging.getLogger(__name__)
 # keeps names unique without giving up a parseable timestamp.
 FILENAME_TS_FORMAT = "%Y%m%d_%H%M%S_%f"
 
+# Same names and order as the last four columns of RAW.WEATHER_FORECAST in
+# setup/05_raw_tables.sql. COPY maps CSV columns to table columns by position,
+# so these must stay last and in this order.
+LINEAGE_COLUMNS = ["source_file_name", "source_file_ts", "ingested_at", "dag_run_id"]
+
+
+def output_file_name(run_ts) -> str:
+    return f"output_{run_ts.strftime(FILENAME_TS_FORMAT)}.csv"
+
+
+def stamp_lineage(df, source_file_name, run_ts, dag_run_id):
+    # run_ts is naive UTC, made once per run, so source_file_ts and ingested_at
+    # agree with the timestamp in the file name and the dt= partition.
+    df = df.drop(columns=LINEAGE_COLUMNS, errors="ignore")
+    df["source_file_name"] = source_file_name
+    df["source_file_ts"] = run_ts
+    df["ingested_at"] = run_ts
+    df["dag_run_id"] = dag_run_id
+    return df
+
 
 def load_records(records, output_path=None) -> str:
     if output_path is None:
