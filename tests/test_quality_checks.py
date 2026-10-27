@@ -80,25 +80,25 @@ class TestCheckVolumeAnomaly:
         monkeypatch.setattr(
             quality_checks,
             "fetch_run_volumes",
-            lambda engine, run_id: (current, recent),
+            lambda conn, run_id: (current, recent),
         )
 
     def test_anomalous_run_raises(self, monkeypatch):
         self._stub_volumes(monkeypatch, 10, [100, 100, 100])
         with pytest.raises(ValueError, match="Volume anomaly detected"):
-            check_volume_anomaly(engine=None, current_run_id="manual__run_1")
+            check_volume_anomaly(conn=None, current_run_id="manual__run_1")
 
     def test_raised_message_names_the_run(self, monkeypatch):
         self._stub_volumes(monkeypatch, 10, [100, 100, 100])
         with pytest.raises(ValueError, match="manual__run_1"):
-            check_volume_anomaly(engine=None, current_run_id="manual__run_1")
+            check_volume_anomaly(conn=None, current_run_id="manual__run_1")
 
     def test_normal_run_returns_result(self, monkeypatch):
         self._stub_volumes(monkeypatch, 100, [100, 100, 100])
-        result = check_volume_anomaly(engine=None, current_run_id="manual__run_1")
+        result = check_volume_anomaly(conn=None, current_run_id="manual__run_1")
         assert result["anomalous"] is False
 
     def test_insufficient_history_does_not_raise(self, monkeypatch):
         self._stub_volumes(monkeypatch, 1, [100])
-        result = check_volume_anomaly(engine=None, current_run_id="manual__run_1")
+        result = check_volume_anomaly(conn=None, current_run_id="manual__run_1")
         assert result["checked"] is False

@@ -8,11 +8,14 @@ USE SCHEMA WEATHER_DB.RAW;
 -- SKIP_HEADER = 1 means COPY maps CSV columns to table columns by position,
 -- so the CSV's column order must match RAW.WEATHER_FORECAST exactly.
 -- tests/test_load.py::TestCsvMatchesSnowflakeRawTable enforces that.
+-- NULL_IF and ERROR_ON_COLUMN_COUNT_MISMATCH were added on 2026-10-27; on an
+-- account where the format already exists, 08_s3_stage.sql ALTERs it to match.
 CREATE FILE FORMAT IF NOT EXISTS RAW.CSV_HEADER
   TYPE = CSV
   SKIP_HEADER = 1
   FIELD_OPTIONALLY_ENCLOSED_BY = '"'
-  NULL_IF = ('');
+  NULL_IF = ('', 'NA', '-999')
+  ERROR_ON_COLUMN_COUNT_MISMATCH = TRUE;
 
 CREATE FILE FORMAT IF NOT EXISTS RAW.JSON_FORMAT
   TYPE = JSON

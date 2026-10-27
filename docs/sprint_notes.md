@@ -276,3 +276,75 @@ exists, `dbt_source_freshness` stays red.
   ON_ERROR = ABORT_STATEMENT;` with no PURGE (S3 keeps the files; COPY's own
   load history skips names it has seen). Check `COPY_HISTORY` for 3 files and
   1800 rows, then `dbt source freshness --target snowflake` should pass.
+
+## Day 2: the stage and the Snowflake loader
+
+### Pipeline A: the flat stage and two file formats (2026-10-27)
+
+- `setup/08_s3_stage.sql` run as WEATHER_ENGINEER: `CSV_HEADER` altered to add
+  `NULL_IF = ('', 'NA', '-999')` and `ERROR_ON_COLUMN_COUNT_MISMATCH = TRUE`;
+  new `CSV_PARSE_HEADER` (PARSE_HEADER = TRUE) for the loader's
+  MATCH_BY_COLUMN_NAME; new stage `RAW.S3_FLAT_STAGE` at `weather/flat/`.
+  `LIST @RAW.S3_FLAT_STAGE` returned 3 rows, one CSV per run so far.
+- Created as WEATHER_ENGINEER rather than SYSADMIN plus a grant, to keep one
+  owner for everything in RAW.
+- TODO (Patrick): one line, in your own words, on why SKIP_HEADER cannot be
+  set alongside PARSE_HEADER. Do not read the comment in 08_s3_stage.sql first.
+- The fallback (PUT through EXPORT_STAGE if LIST failed at 3:00) was not
+  needed; the handshake was proven on day 1.
+
+### Pipeline B: the Snowflake loader (2026-10-27)
+
+- `src/snowflake_loader.py`: `snowflake_connection()` as a context manager
+  (key pair as WEATHER_SVC, role WEATHER_ENGINEER, LOAD_WH, every value from
+  the environment with the missing name in the error, login and network
+  timeouts, session id logged on open and close, closed on every path), and
+  `copy_flat(conn, dt) -> LoadResult`. `dt` is validated with
+  `date.fromisoformat` before it touches the SQL string; that is the injection
+  guard, since a stage path cannot be a bind variable. The result is read by
+  column name from `cursor.description`: when nothing is new the result is a
+  single status row with no `rows_loaded` column.
+- `LoadError` wraps `ProgrammingError` with the date, the stage path and the
+  query id. Nothing else is caught; no retries in the module.
+- `SNOWFLAKE_LOAD_WAREHOUSE` (default `LOAD_WH`) added to `.env.example`,
+  because `SNOWFLAKE_WAREHOUSE` is dbt's TRANSFORM_WH.
+- Run by hand for dt=2026-10-27: 600 rows, equal to the CSV. Session and query
+  ids in `docs/pipeline_runs.md`.
+
+### Pipeline C: the loader proven (2026-10-27)
+
+- Second run for the same date: 0 files, 0 rows (load metadata).
+  `COPY_HISTORY` shows the file once. Both in `docs/pipeline_runs.md`.
+- `docs/decisions/0001-load-idempotency.md`: same name with new contents, the
+  64 day metadata window and `LOAD_UNCERTAIN_FILES`, `FORCE = TRUE`, and dry
+  runs. Found while writing it: `VALIDATION_MODE` cannot be combined with
+  `MATCH_BY_COLUMN_NAME` (error 002353); the dry run uses the positional
+  `CSV_HEADER` format instead, confirmed against dt=2026-10-26.
+- `tests/test_snowflake_loader.py`: fake cursor and connection; one loaded
+  file, two files summed, the zero-file status row, `ProgrammingError` to
+  `LoadError` with the query id and cause, a bad date sends no SQL, the cursor
+  is closed on both paths, and the SQL names the stage, format and date.
+- `src/quality_checks.fetch_run_volumes` now takes a Snowflake connection:
+  `%(run_id)s` binds, schema `RAW`. The pure `evaluate_volume_anomaly` and its
+  tests are unchanged; the wrapper tests only renamed `engine=` to `conn=`.
+- 84 tests pass.
+- **Known break until day 3:** the live DAG still calls
+  `check_volume_anomaly(get_engine(), ...)` with a SQLAlchemy engine. The
+  ported function expects a Snowflake connection, so tonight's scheduled run
+  fails at `volume_anomaly_check`. Postgres is still loaded before that task,
+  and the S3 uploads still land. Day 3 rewires the DAG to the Snowflake loader
+  and this check.
+
+### End of day, 2026-10-27 (day 2)
+
+- **Where each block stopped.** A: done, `S3_FLAT_STAGE` listed 3 CSVs. B:
+  done, loader built and run. C: done, run twice, history read, tests green,
+  ADR written. Your one line on SKIP_HEADER vs PARSE_HEADER is still owed.
+- **Last error text.** `002353 (0A000): SQL compilation error:
+  MATCH_BY_COLUMN_NAME cannot be used with the VALIDATION_MODE because
+  VALIDATION_MODE does not support COPY with transform.` Handled in the ADR.
+- **First ten minutes of tomorrow (day 3).** Open
+  `dags/weather_forecast_pipeline.py`. Replace `load_raw_table` with a task
+  that opens `snowflake_connection()` and calls `copy_flat(conn, run_ts date)`,
+  and `volume_anomaly_check` with the same connection. Remove `load_records`
+  to Postgres from the chain. Then trigger a run and watch `load_snowflake`.
