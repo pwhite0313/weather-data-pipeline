@@ -195,3 +195,65 @@ the one-name-per-run rule working.
   `weather-writer` and its keys, remove the keys from `.env`.
 - Storage integration (next block): read policy on `weather/*`, role trusting
   Snowflake, `S3_WEATHER_INT`. The account id above is needed for the role ARN.
+
+## 2026-10-27: storage integration, two passes, one handshake
+
+### Traps written down before starting
+
+- **Never `CREATE OR REPLACE` the integration.** Replacing it makes Snowflake
+  issue a new external id, and the role's trust policy still has the old one.
+  Nothing errors at creation; the next `LIST` fails. After the first `CREATE`,
+  every change is `ALTER STORAGE INTEGRATION`.
+- **Check the two copied values before the first test.** The trust policy's
+  `Principal.AWS` must equal `STORAGE_AWS_IAM_USER_ARN` and `sts:ExternalId`
+  must equal `STORAGE_AWS_EXTERNAL_ID`, character for character. IAM takes up
+  to a minute to propagate and Snowflake caches assumed credentials for up to
+  an hour, so a wrong first try costs far more than a wrong second look.
+- **If `LIST` fails:** wait one minute, retry once, re-check the two values.
+  Only then change something, and change one thing.
+- **The external id stays out of the repo.** `snowflake_read_trust_policy.json`
+  is committed with placeholders; the real one is applied from CloudShell. The
+  id is what stops any other Snowflake account from assuming the role, so a
+  public repo is the wrong place for it.
+
+### Pass one
+
+- `infra/iam/snowflake_read_policy.json` registered as
+  `arn:aws:iam::870947613885:policy/snowflake-weather-read`. Read-only twin of
+  the writer policy: `GetObject`/`GetObjectVersion` under `weather/*`,
+  `ListBucket`/`GetBucketLocation` on the bucket with the prefix condition.
+- Role `snowflake-weather-read` created with a placeholder trust (own account,
+  external id `0000`) so the integration had an ARN to point at. Read policy
+  attached to it.
+- `setup/07_storage_integration.sql` run as ACCOUNTADMIN: `CREATE STORAGE
+  INTEGRATION IF NOT EXISTS S3_WEATHER_INT`, role ARN above, allowed location
+  `s3://pw-weather-2026/weather/`.
+
+### Pass two
+
+- `DESC INTEGRATION` gave `STORAGE_AWS_IAM_USER_ARN =
+  arn:aws:iam::183863150535:user/7fg62000-s` (Snowflake's own account) and an
+  external id, kept out of the repo.
+- Both pasted into CloudShell shell variables, the trust policy built from the
+  variables (no retyping), bracket-printed to catch stray whitespace, applied
+  with `update-assume-role-policy`, read back with `get-role` and compared to
+  the `DESC` output. Matched first time.
+- `GRANT USAGE ON INTEGRATION` to SYSADMIN, then WEATHER_ENGINEER.
+
+### Proof
+
+As WEATHER_ENGINEER, `CREATE STAGE RAW.S3_WEATHER_STAGE` on the integration
+(now in `setup/06_stage.sql`) and `LIST @RAW.S3_WEATHER_STAGE`: 48 rows on the
+first try, no propagation wait needed. 48, not 32, because the scheduled DAG
+run at 00:00 UTC had already landed a third set of 16 on its own:
+
+```
+dt=2026-10-26  20261026_175722  16   laptop run
+dt=2026-10-26  20261026_181552  16   triggered DAG run
+dt=2026-10-27  20261027_000002  16   scheduled DAG run
+```
+
+Snowflake can now read the bucket with no keys anywhere. What is missing is
+the COPY from `@RAW.S3_WEATHER_STAGE/flat/` into `RAW.WEATHER_FORECAST`, which
+replaces the manual PUT path in `setup/load/copy_raw_tables.sql`. Until it
+exists, `dbt_source_freshness` stays red.
