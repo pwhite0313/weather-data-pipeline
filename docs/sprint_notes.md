@@ -348,3 +348,29 @@ exists, `dbt_source_freshness` stays red.
   that opens `snowflake_connection()` and calls `copy_flat(conn, run_ts date)`,
   and `volume_anomaly_check` with the same connection. Remove `load_records`
   to Postgres from the chain. Then trigger a run and watch `load_snowflake`.
+
+## Day 3: the DAG on S3 and Snowflake; EC2; Docker on the box
+
+### Pipeline A: weather_daily (2026-10-27)
+
+- `dags/weather_forecast_pipeline.py` renamed to `dags/weather_daily.py`,
+  `dag_id="weather_daily"`, schedule `0 6 * * *`, `start_date` 2026-10-01,
+  `catchup=False`, `max_active_runs=1`. Chain: extract, transform,
+  write_to_s3, copy_into_snowflake, validate_row_count, volume_anomaly_check,
+  dbt_source_freshness, dbt_build. Nothing imports `postgres_loader` or
+  `get_engine`.
+- The partition date is `data_interval_end` from the run, passed on by XCom.
+  The file timestamp is still the write time, so every attempt writes a new
+  object name. `landing.py` gained a `dt` argument and `upload_flat_frame`
+  (frame to CSV bytes to S3, no local file).
+- Retries: two, five minutes apart, by default; none on `dbt_build`. Why, and
+  why `ds` would be wrong, in `docs/airflow_answers.md`. Found on the manual
+  trigger: Airflow 2.8 gives a manual run the most recent *completed*
+  interval, so `data_interval_end` was 06:00 today, not the trigger time. A
+  manual trigger before 06:00 UTC lands in yesterday's partition. Written down.
+- Freshness back to 26 and 50 hours. `postgres-warehouse` marked unused in
+  compose, kept for the dbt `dev` target until day 27.
+- Manual run green end to end on the laptop; 600 rows under `manual__day3_a`.
+  Details in `docs/pipeline_runs.md`. 86 tests pass.
+- The old `dag_id` is gone from the DAG list; its run history is still in the
+  metadata database under the old name.

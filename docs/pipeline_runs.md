@@ -30,3 +30,31 @@ that run plus the manual backfill from September.
 A dry run against the other partition,
 `COPY ... FROM @RAW.S3_FLAT_STAGE/dt=2026-10-26/ FILE_FORMAT = (FORMAT_NAME = RAW.CSV_HEADER) VALIDATION_MODE = RETURN_ERRORS`,
 returned no error rows and loaded nothing. See ADR 0001 for when to use it.
+
+## 2026-10-27: first runs of weather_daily, laptop, S3 to Snowflake end to end
+
+The DAG renamed and rewired (PR: `feat(airflow): load snowflake from s3 in
+weather_daily`). Postgres is off the path. Unpausing created one scheduled run
+for the latest interval on its own (`catchup=False` still runs the most recent
+one), then a manual run was triggered 40 seconds later.
+
+| Run | dag_run_id | Partition | File | COPY query id | Rows |
+|---|---|---|---|---|---|
+| scheduled, on unpause | `scheduled__2026-10-26T06:00:00+00:00` | `dt=2026-10-27` | `output_20261027_192816_751720.csv` | in its task log | 600 |
+| manual | `manual__day3_a` | `dt=2026-10-27` | `output_20261027_192858_265318.csv` | `01c80431-0209-596f-0010-8496001e52d2` | 600 |
+
+Manual run, task by task (all green, 37 seconds end to end):
+
+```
+write_to_s3            dt=2026-10-27: 15 raw objects, flat weather/flat/dt=2026-10-27/output_20261027_192858_265318.csv
+copy_into_snowflake    LoadResult(files_loaded=1, rows_loaded=600, rows_parsed=600, errors_seen=0)
+validate_row_count     Rows loaded this run: 600
+volume_anomaly_check   Volume check: current=600, rolling_avg=600.0, threshold=300.0
+dbt_source_freshness   1 of 1 PASS freshness of raw.weather_forecast
+dbt_build              Done. PASS=60 WARN=0 ERROR=0 SKIP=0 NO-OP=0 TOTAL=60
+```
+
+`dbt_source_freshness` passed for the first time since 2026-10-15; the
+thresholds are back to 26 and 50 hours. `RAW.WEATHER_FORECAST` now holds 2400
+rows across four run ids. Three of them are the same day's forecasts, so the
+staging dedupe has real overlap to remove; day 5 counts it.

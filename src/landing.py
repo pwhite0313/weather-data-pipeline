@@ -30,12 +30,15 @@ def _required_env(name: str) -> str:
     return value
 
 
-def upload_raw_payloads(client, bucket, payloads, run_ts) -> list[str]:
+def upload_raw_payloads(client, bucket, payloads, run_ts, dt=None) -> list[str]:
+    """One object per city. dt is the partition date; it defaults to run_ts's
+    date for laptop runs, and the DAG passes the run's data_interval_end."""
+    dt = dt or run_ts
     ts = run_ts.strftime(FILENAME_TS_FORMAT)
     keys = []
 
     for payload in payloads:
-        key = s3_key("raw", run_ts, f"{payload['city']['id']}_{ts}.json")
+        key = s3_key("raw", dt, f"{payload['city']['id']}_{ts}.json")
         upload_bytes(client, bucket, key, json.dumps(payload).encode("utf-8"), "application/json")
         keys.append(key)
 
@@ -43,8 +46,17 @@ def upload_raw_payloads(client, bucket, payloads, run_ts) -> list[str]:
     return keys
 
 
-def upload_flat_csv(client, bucket, csv_path, run_ts) -> str:
+def upload_flat_csv(client, bucket, csv_path, run_ts, dt=None) -> str:
     path = Path(csv_path)
-    key = s3_key("flat", run_ts, path.name)
+    key = s3_key("flat", dt or run_ts, path.name)
     upload_bytes(client, bucket, key, path.read_bytes(), "text/csv")
+    return key
+
+
+def upload_flat_frame(client, bucket, df, file_name, dt) -> str:
+    """The stamped frame straight to S3 as CSV, no local file. Same shape as
+    load_records writes: header row, no index, NaN as empty."""
+    body = df.to_csv(index=False).encode("utf-8")
+    key = s3_key("flat", dt, file_name)
+    upload_bytes(client, bucket, key, body, "text/csv")
     return key
