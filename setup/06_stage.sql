@@ -1,27 +1,41 @@
+-- File formats and stages in RAW. Safe to rerun: everything is IF NOT EXISTS.
 USE ROLE WEATHER_ENGINEER;
 USE SCHEMA WEATHER_DB.RAW;
 
+
+-- FILE FORMATS
+
+-- SKIP_HEADER = 1 means COPY maps CSV columns to table columns by position,
+-- so the CSV's column order must match RAW.WEATHER_FORECAST exactly.
+-- tests/test_load.py::TestCsvMatchesSnowflakeRawTable enforces that.
 CREATE FILE FORMAT IF NOT EXISTS RAW.CSV_HEADER
   TYPE = CSV
   SKIP_HEADER = 1
   FIELD_OPTIONALLY_ENCLOSED_BY = '"'
   NULL_IF = ('');
 
+CREATE FILE FORMAT IF NOT EXISTS RAW.JSON_FORMAT
+  TYPE = JSON
+  STRIP_OUTER_ARRAY = TRUE;
+
+
+-- INTERNAL STAGES (manual PUT path)
+-- Used by setup/load/copy_raw_tables.sql for the first loads, before S3.
+-- Superseded by S3_WEATHER_STAGE below; kept until that COPY path is retired.
 CREATE STAGE IF NOT EXISTS RAW.EXPORT_STAGE
   FILE_FORMAT = RAW.CSV_HEADER;
-
-
--- JSON SETUP
-USE ROLE WEATHER_ENGINEER;
-USE SCHEMA WEATHER_DB.RAW;
-
-CREATE FILE FORMAT IF NOT EXISTS RAW.JSON
-    TYPE = JSON
-    STRIP_OUTER_ARRAY = TRUE;
-
-ALTER FILE FORMAT WEATHER_DB.RAW.JSON RENAME TO WEATHER_DB.RAW.JSON_FORMAT;
 
 CREATE STAGE IF NOT EXISTS RAW.JSON_STAGE
   FILE_FORMAT = RAW.JSON_FORMAT;
 
-LIST @RAW.JSON_STAGE;
+
+-- EXTERNAL STAGE ON S3 (2026-10-27)
+-- Authenticates through S3_WEATHER_INT (setup/07_storage_integration.sql), so
+-- no AWS keys live in Snowflake. Objects land under weather/raw/dt=.../ (one
+-- JSON per city per run) and weather/flat/dt=.../ (one CSV per run).
+CREATE STAGE IF NOT EXISTS RAW.S3_WEATHER_STAGE
+  STORAGE_INTEGRATION = S3_WEATHER_INT
+  URL = 's3://pw-weather-2026/weather/';
+
+-- Proof the integration handshake works: lists the bucket prefix via the role.
+LIST @RAW.S3_WEATHER_STAGE;
