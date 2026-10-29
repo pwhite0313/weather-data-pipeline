@@ -21,6 +21,9 @@ GRANT USAGE ON INTEGRATION WEATHER_EMAIL_INT TO ROLE WEATHER_ENGINEER;
 -- alerts need EXECUTE ALERT instead. Both granted so either form works.
 GRANT EXECUTE MANAGED ALERT ON ACCOUNT TO ROLE WEATHER_ENGINEER;
 GRANT EXECUTE ALERT ON ACCOUNT TO ROLE WEATHER_ENGINEER;
+-- WEATHER_ENGINEER does not own the RAW schema, so creating an alert in it
+-- needs this too (found on 2026-10-29: "must have CREATE ALERT granted on SCHEMA").
+GRANT CREATE ALERT ON SCHEMA WEATHER_DB.RAW TO ROLE WEATHER_ENGINEER;
 
 
 -- Part two, as the pipeline's own role.
