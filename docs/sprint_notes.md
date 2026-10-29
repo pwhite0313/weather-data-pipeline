@@ -426,3 +426,25 @@ exists, `dbt_source_freshness` stays red.
   and can be stopped with `docker compose stop` any time.
 - `docs/hosting.md` written; the price line is still to fill in.
 - Reboot test: `sudo systemctl reboot` at 16:31:17 UTC; the box was up at 16:31:31 and every container was healthy within a minute with no login, and the DAG was still unpaused. `restart: always` holds. Day 4A done.
+
+### Day 4, Pipeline C: the Snowflake alert for the run that never happened (2026-10-29)
+
+- Email verified on the Snowflake user profile; `WEATHER_EMAIL_INT` and the
+  grants run as ACCOUNTADMIN from `setup/09_alerts.sql`. One grant the plan
+  did not list was needed: `CREATE ALERT ON SCHEMA WEATHER_DB.RAW`, because
+  `WEATHER_ENGINEER` does not own the schema. Added to the file.
+- `RAW.WEATHER_STALE` created as `WEATHER_ENGINEER`: serverless (no
+  warehouse), `USING CRON 0 12 * * * UTC`, condition `MAX(ingested_at)` null
+  or older than 26 hours against `SYSDATE()`, action `SYSTEM$SEND_EMAIL`.
+  Resumed; `SHOW ALERTS` says `started`.
+- Two things learned while proving it. `ALTER ALERT ... MODIFY CONDITION`
+  is refused unless the alert is suspended, so the proof is suspend, modify,
+  resume, execute. And `EXECUTE ALERT` is asynchronous: the first attempt
+  reset the threshold before the evaluation ran and got `CONDITION_FALSE`
+  with no email. The second attempt waited for `ALERT_HISTORY` to show a
+  completed evaluation before restoring the threshold.
+- `ALERT_HISTORY`: `CONDITION_FALSE` at 16:57:28 UTC (26 hour threshold),
+  `TRIGGERED` at 16:58:30 UTC (1 minute threshold), no error. The threshold
+  is back at 26 hours and the next scheduled evaluation is 2026-10-30 12:00
+  UTC. The test email is the one thing still to confirm from the inbox.
+- Why serverless, and the cost, in `docs/decisions/0002-stale-data-alert.md`.
