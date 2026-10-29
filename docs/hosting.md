@@ -14,9 +14,11 @@ Where the pipeline runs when the laptop is off, and how to get at it.
 | Public IP | In the EC2 console, not written here (the repo is public). Not an Elastic IP: a stop and start changes it. Public IPv4 is billed per hour either way (about $0.005, about $3.65 a month). |
 | Created | 2026-10-29 by `infra/ec2/create_box.sh` from CloudShell |
 
-**Price:** `t3.medium` on demand in `us-east-2`, TODO: the figure the create
-script printed, as USD per hour, and times 730 for the month. Plus the disk
-(about $1.60 a month) and the public IPv4 (about $3.65).
+**Price:** `t3.medium` on demand in `us-east-2`, $0.0416 an hour on
+2026-10-29 (from a third-party price aggregator; confirm on the AWS on-demand
+page when the first bill arrives), about $30.40 for a 730 hour month. Plus
+the disk (about $1.60 a month) and the public IPv4 (about $3.65): about $36
+a month running all the time, which is why the budget is $40.
 
 **Budget:** `weather-hosting`, $40 a month, email alerts at 50, 80 and 100
 percent. A budget alerts; it does not stop anything.
