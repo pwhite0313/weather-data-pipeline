@@ -49,6 +49,9 @@ services:
     volumes:
       - postgres-meta-volume:/var/lib/postgresql/data
 
+  # No longer on the pipeline's path: weather_daily loads Snowflake from S3.
+  # Kept running for the dbt `dev` target and the Postgres modules until they
+  # are removed together (planned for the package rewrite, day 27).
   postgres-warehouse:
     image: postgres:15
     environment:

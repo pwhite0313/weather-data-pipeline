@@ -123,7 +123,7 @@ weather_pipeline/
 │   └── workflows/
 │       └── ci.yml                     # GitHub Actions: pytest on push
 ├── dags/
-│   └── weather_forecast_pipeline.py   # Airflow DAG definition
+│   └── weather_daily.py               # Airflow DAG definition
 ├── data/                              # contents gitignored; dirs ship empty
 │   ├── raw/                           # CSV output files from each DAG run
 │   └── processed/                     # unused, reserved
@@ -453,10 +453,10 @@ The warehouse Postgres is available at `localhost:5432`.
 
 If either port is already in use, set `AIRFLOW_WEBSERVER_PORT` / `WAREHOUSE_HOST_PORT` in `.env` to remap the host side only — internal service-to-service traffic is unaffected.
 
-Airflow pauses every DAG on creation by default (`AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION`), so nothing — including a fresh deploy of this pipeline — runs unattended before a human enables it. `weather_forecast_pipeline` will sit `queued` if triggered until you unpause it:
+Airflow pauses every DAG on creation by default (`AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION`), so nothing — including a fresh deploy of this pipeline — runs unattended before a human enables it. `weather_daily` will sit `queued` if triggered until you unpause it:
 
 ```bash
-docker compose exec airflow-scheduler airflow dags unpause weather_forecast_pipeline
+docker compose exec airflow-scheduler airflow dags unpause weather_daily
 ```
 
 (Same command for any new DAG you add — swap in its `dag_id`.)
@@ -498,7 +498,7 @@ If the connection is not found at runtime, `postgres_loader.py` falls back to th
 Trigger the DAG from the UI or CLI:
 
 ```bash
-docker compose exec airflow-scheduler airflow dags trigger weather_forecast_pipeline
+docker compose exec airflow-scheduler airflow dags trigger weather_daily
 ```
 
 ### Via CLI (local, no Docker)

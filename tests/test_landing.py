@@ -1,9 +1,11 @@
 import json
-from datetime import datetime
+from datetime import date, datetime
+
+import pandas as pd
 
 import pytest
 
-from src.landing import bucket_name, upload_flat_csv, upload_raw_payloads
+from src.landing import bucket_name, upload_flat_csv, upload_flat_frame, upload_raw_payloads
 
 RUN_TS = datetime(2026, 10, 19, 18, 30, 0, 123456)
 
@@ -42,3 +44,19 @@ class TestBucketName:
         monkeypatch.delenv("S3_BUCKET", raising=False)
         with pytest.raises(RuntimeError, match="S3_BUCKET"):
             bucket_name()
+
+
+class TestPartitionDateFromTheRun:
+    def test_dt_overrides_the_partition_but_not_the_file_timestamp(self, fake_s3):
+        late_write = datetime(2026, 10, 28, 0, 5, 0, 1)
+        keys = upload_raw_payloads(fake_s3, "bucket", [payload(5128581)], late_write, dt=date(2026, 10, 27))
+        assert keys == ["weather/raw/dt=2026-10-27/5128581_20261028_000500_000001.json"]
+
+
+class TestUploadFlatFrame:
+    def test_writes_csv_bytes_with_header_and_no_index(self, fake_s3):
+        df = pd.DataFrame({"city_id": [1, 2], "main_temp": [60.5, None]})
+        key = upload_flat_frame(fake_s3, "bucket", df, "output_x.csv", date(2026, 10, 27))
+        assert key == "weather/flat/dt=2026-10-27/output_x.csv"
+        assert fake_s3.calls[0]["Body"] == b"city_id,main_temp\n1,60.5\n2,\n"
+        assert fake_s3.calls[0]["ContentType"] == "text/csv"
