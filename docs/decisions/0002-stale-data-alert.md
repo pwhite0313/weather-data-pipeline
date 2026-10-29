@@ -1,6 +1,6 @@
 # ADR 0002: the stale data alert runs serverless, outside the box
 
-Date: 2026-10-29. Status: accepted, pending the first test email.
+Date: 2026-10-29. Status: accepted. Test email received 2026-10-29 16:58 UTC.
 
 ## Context
 
