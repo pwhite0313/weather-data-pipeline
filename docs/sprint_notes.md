@@ -374,3 +374,55 @@ exists, `dbt_source_freshness` stays red.
   Details in `docs/pipeline_runs.md`. 86 tests pass.
 - The old `dag_id` is gone from the DAG list; its run history is still in the
   metadata database under the old name.
+
+### Pipeline B: the budget, the instance, the role, and the fence (2026-10-29)
+
+- Done from CloudShell with `infra/ec2/create_box.sh` instead of the console,
+  so it is repeatable and reviewable: one paste of three variables (laptop
+  IP, SSH public key, alert email) and a `curl | bash` of the script from the
+  branch. Budget `weather-hosting` at $40 a month (a t3.medium running all
+  month is about $36; $20 or $30 would alert every month during normal
+  running), alerts at 50, 80 and 100 percent.
+- The SSH key pair was generated on the laptop (`~/.ssh/weather-ec2`, ed25519)
+  and only the public half imported, so no private key was ever downloaded
+  from AWS.
+- Role `weather-ec2-role` with the day 1 `extractor_write_policy.json` and an
+  instance profile, attached at launch. Security group `sg-00755a4be383bf5e7`:
+  port 22 from `100.37.237.229/32`, nothing else.
+- Instance `i-06974584beba5796b`, Ubuntu 24.04, t3.medium, 20 GB gp3, in
+  us-east-2, public IP `13.184.168.166`. `aws sts get-caller-identity` on the
+  box: `assumed-role/weather-ec2-role/i-06974584beba5796b`.
+- Not yet done: deleting the `weather-writer` user and its keys. The laptop's
+  `.env` still holds them for laptop runs; they go once the laptop is no longer
+  a place the pipeline runs from. The box owns the schedule now, so day 5 or 6.
+
+### Pipeline C: Docker, the repo, the secrets, the image (2026-10-29)
+
+- `infra/ec2/bootstrap_box.sh` on the box: Docker Engine and the compose
+  plugin from Docker's apt repository, `usermod -aG docker ubuntu`, UTC, the
+  AWS CLI (snap), the clone over HTTPS to `~/weather`.
+- Secrets by `scp`: `keys/rsa_key.p8` and a `.env` built on the laptop with
+  the AWS key lines removed, `AIRFLOW_UID=1000`, a fresh Fernet key, fresh
+  webserver and API secrets, and a random `AIRFLOW_WWW_PASSWORD`. Both mode
+  600; the laptop copy of the box `.env` was shredded after the copy.
+- `docker-compose.yml`: the admin user's password now comes from
+  `AIRFLOW_WWW_PASSWORD` (default `admin` for the laptop). `restart: always`,
+  `LOAD_EXAMPLES=false` and the Fernet key from env were already in place
+  since day 1, so the guide's `chore(airflow): restart policies...` commit had
+  nothing left to do.
+- No Snowflake network policy exists on `WEATHER_SVC` or the account, so
+  nothing to add for the box's IP.
+- `docker compose build` about 10 minutes, `up -d`, every service healthy,
+  `list-import-errors` empty. Inside the scheduler container:
+  `import src.snowflake_loader, src.s3` works and boto3's STS identity is the
+  instance role. Done.
+
+### Day 4, Pipeline A: the manual run on the box, and the handover (2026-10-29)
+
+- `manual__box_1` green end to end on the box, same numbers as the laptop.
+  Details in `docs/pipeline_runs.md`.
+- Handover: unpaused on the box, paused on the laptop. The local stack is
+  still running (dbt `dev` target, Postgres); it no longer runs the schedule
+  and can be stopped with `docker compose stop` any time.
+- `docs/hosting.md` written; the price line is still to fill in.
+- Reboot test: issued 16:31:17 UTC; result recorded below.

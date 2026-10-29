@@ -58,3 +58,27 @@ dbt_build              Done. PASS=60 WARN=0 ERROR=0 SKIP=0 NO-OP=0 TOTAL=60
 thresholds are back to 26 and 50 hours. `RAW.WEATHER_FORECAST` now holds 2400
 rows across four run ids. Three of them are the same day's forecasts, so the
 staging dedupe has real overlap to remove; day 5 counts it.
+
+## 2026-10-29: first run on the box, i-06974584beba5796b
+
+`weather_daily` triggered by hand on the EC2 instance (`manual__box_1`), the
+laptop's DAG paused at the same time. Same numbers as the laptop run of
+2026-10-27, from a machine that is not the laptop and holds no AWS keys:
+
+```
+write_to_s3            dt=2026-10-29: 15 raw objects, flat weather/flat/dt=2026-10-29/output_20261029_162859_013621.csv
+copy_into_snowflake    COPY query 01c80ebd-0209-6b57-0010-8496002001fe: 1 file(s), 600 rows loaded of 600 parsed, 0 errors
+validate_row_count     Rows loaded this run: 600
+volume_anomaly_check   Volume check: current=600, rolling_avg=600.0, threshold=300.0
+dbt_source_freshness   1 of 1 PASS freshness of raw.weather_forecast
+dbt_build              Done. PASS=60 WARN=0 ERROR=0 SKIP=0 NO-OP=0 TOTAL=60
+```
+
+All eight tasks green, 16:28:28 to 16:29:46 UTC. The S3 write authenticated
+through the instance role `weather-ec2-role`. The DAG is unpaused on the box
+and paused on the laptop from this point; the next run is the box's own at
+06:00 UTC on 2026-10-30.
+
+Between the laptop handover and this run, the laptop's scheduler had already
+run the 06:00 UTC runs of 2026-10-28 and 2026-10-29 on its own (600 rows
+each), so `RAW.WEATHER_FORECAST` holds 4200 rows across seven run ids.
