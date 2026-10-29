@@ -82,3 +82,31 @@ and paused on the laptop from this point; the next run is the box's own at
 Between the laptop handover and this run, the laptop's scheduler had already
 run the 06:00 UTC runs of 2026-10-28 and 2026-10-29 on its own (600 rows
 each), so `RAW.WEATHER_FORECAST` holds 4200 rows across seven run ids.
+
+## 2026-10-29: the deliberate failure, cleared alone (day 4B)
+
+`src/transform.py` on the box was made to raise on entry (an uncommitted
+edit, reverted afterwards), and `manual__break_1` was triggered at 16:53:53
+UTC. `transform` failed at 16:54, 16:59 and 17:04 (two retries, five minutes
+apart), the run went `failed`, and the failure callback posted to ntfy;
+the notification arrived on the phone. Then the file was restored and only
+`transform` was cleared, with its downstream:
+
+```
+airflow tasks clear weather_daily --task-regex '^transform$' --start-date 2026-10-29T16:53:52+00:00 --end-date 2026-10-29T16:53:52+00:00 --downstream --yes
+```
+
+Attempts per task afterwards: `extract` 1, `transform` 4, every downstream
+task 1. The API was called once. The load log has exactly one `COPY`:
+
+```
+write_to_s3            dt=2026-10-29: 15 raw objects, flat weather/flat/dt=2026-10-29/output_20261029_170456_636087.csv
+copy_into_snowflake    COPY query 01c80ee1-0209-6b57-0010-849600200322: 1 file(s), 600 rows loaded of 600 parsed, 0 errors
+dbt_build              Done. PASS=60 WARN=0 ERROR=0 SKIP=0 NO-OP=0 TOTAL=60
+```
+
+That sentence is the Airflow half of the idempotency answer: clearing a task
+re-runs it and what depends on it, not what it depends on, so a repaired
+transform does not cost a second API call. The Snowflake half is load
+metadata (ADR 0001): the re-run wrote a new file name, so COPY loaded it, and
+the staging dedupe owns the overlap.

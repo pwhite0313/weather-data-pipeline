@@ -448,3 +448,36 @@ exists, `dbt_source_freshness` stays red.
   is back at 26 hours and the next scheduled evaluation is 2026-10-30 12:00
   UTC. The test email is the one thing still to confirm from the inbox.
 - Why serverless, and the cost, in `docs/decisions/0002-stale-data-alert.md`.
+
+### Day 4, Pipeline B: break transform, clear it alone, the failure alert (2026-10-29)
+
+- `src/alerts.py`: `notify_failure` posts one line (`dag_id.task_id try N
+  failed` and the log URL) to an ntfy.sh topic from `NTFY_TOPIC`. No topic
+  means log only; a failed post is logged and swallowed. Tested with a fake
+  `post`. The callback calls it after the log line that nobody reads.
+- `execution_timeout` 20 minutes on every task, `dagrun_timeout` 1 hour.
+  What state a timed out task lands in: `docs/airflow_answers.md`.
+- Test post from the laptop reached the phone. Then the real thing:
+  transform broken on the box, three failures, the callback fired ("Failure
+  sent to ntfy topic" in attempt 3's log), the notification arrived. Repaired,
+  `transform` cleared alone with downstream, run green, `extract` still on one
+  attempt, one `COPY`. Details in `docs/pipeline_runs.md`.
+- The planted callback-without-context bug is on the deferred list (day 13).
+
+### End of day, 2026-10-29 (days 3 and 4)
+
+- **Where each block stopped.** Day 3 A, B, C and day 4 A, B, C all done and
+  proven: the box runs the schedule, holds no AWS keys, survived a reboot;
+  a task failure reaches the phone; a missing run reaches the inbox. Laptop
+  DAG paused and the local stack stopped. Open: delete `weather-writer`
+  (day 6, with "done"), the SKIP_HEADER line, the deferred readings.
+- **Last error text.** `RuntimeError: deliberate break for day 4B: transform
+  fails on purpose`, three times, on purpose. Before that, the real one:
+  `392005 (55000): Unable to alter property for alert WEATHER_STALE since it
+  is not suspended.` Handled: suspend before `MODIFY CONDITION`.
+- **First ten minutes of tomorrow (day 5).** Do not touch the box. Open the
+  tunnel, read the 06:00 UTC run's grid and each task's log; then in
+  Snowflake, `COPY_HISTORY` for the file and `WAREHOUSE_METERING_HISTORY` for
+  `LOAD_WH` and `TRANSFORM_WH` since 06:00; then the reconciliation (CSV rows,
+  `rows_loaded`, RAW rows for the run, staging rows after the dedupe) into
+  `docs/pipeline_runs.md`, with minutes and credits as the baseline.
