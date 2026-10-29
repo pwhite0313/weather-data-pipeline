@@ -82,7 +82,7 @@ services:
         mkdir -p /opt/airflow/{logs,dags,plugins,config} /opt/airflow/dbt/{target,logs,dbt_packages} &&
         chown -R "${AIRFLOW_UID:-50000}:0" /opt/airflow/{logs,plugins,config,data} /opt/airflow/dbt/{target,logs,dbt_packages} &&
         airflow db migrate &&
-        airflow users create --username admin --password admin --firstname Admin --lastname User --role Admin --email admin@example.com &&
+        airflow users create --username admin --password \"${AIRFLOW_WWW_PASSWORD:-admin}\" --firstname Admin --lastname User --role Admin --email admin@example.com &&
         cd /opt/airflow/dbt && dbt deps --profiles-dir /opt/airflow/dbt &&
         chown -R "${AIRFLOW_UID:-50000}:0" /opt/airflow/dbt/dbt_packages /opt/airflow/dbt/logs &&
         chown "${AIRFLOW_UID:-50000}:0" /opt/airflow/dbt/.user.yml /opt/airflow/dbt/package-lock.yml 2>/dev/null || true
