@@ -15,6 +15,7 @@ from airflow.decorators import dag, task
 from airflow.operators.bash import BashOperator
 from airflow.operators.python import get_current_context
 
+from src.alerts import notify_failure
 from src.extract import extract_records
 from src.landing import bucket_name, make_s3_client, upload_flat_frame, upload_raw_payloads
 from src.load import output_file_name, stamp_lineage
@@ -28,6 +29,9 @@ logger = logging.getLogger(__name__)
 
 
 def on_failure_callback(context):
+    # Airflow calls this with the task's context once retries are exhausted.
+    # A callback defined without the context parameter never fires; the only
+    # trace is one line in the task log.
     ti = context["task_instance"]
     logger.error(
         "TASK FAILED | dag: %s | task: %s | run_id: %s | logical_date: %s | error: %s",
@@ -37,6 +41,8 @@ def on_failure_callback(context):
         context.get("logical_date"),
         context.get("exception"),
     )
+    # The log line above is where nobody looks. This reaches a phone.
+    notify_failure(ti.dag_id, ti.task_id, ti.try_number, getattr(ti, "log_url", None))
 
 
 @dag(
@@ -47,9 +53,18 @@ def on_failure_callback(context):
     start_date=datetime(2026, 10, 1),
     catchup=False,
     max_active_runs=1,
+    # A whole run normally takes under two minutes. A run still going after an
+    # hour is stuck, not slow; the timeout fails it so the alert fires and the
+    # next day's run is not blocked by max_active_runs.
+    dagrun_timeout=timedelta(hours=1),
     default_args={
         "retries": 2,
         "retry_delay": timedelta(minutes=5),
+        # A task that is still running after twenty minutes is hung (a stalled
+        # API call, a Snowflake login that never returns). The timeout raises
+        # AirflowTaskTimeout inside the task: it lands in up_for_retry while
+        # retries remain, then failed, and the failure callback fires.
+        "execution_timeout": timedelta(minutes=20),
         "on_failure_callback": on_failure_callback,
     },
     tags=["etl", "api", "s3", "snowflake", "dbt"],
