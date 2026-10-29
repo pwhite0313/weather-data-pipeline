@@ -56,3 +56,32 @@ new file name, which COPY will then load.
 - `write_to_s3` to the load: a dict with the date, the object keys and the row
   count.
 - The load to the checks: `LoadResult` as a dict.
+
+## Timeouts, and what state a timed out task lands in (2026-10-29)
+
+`execution_timeout=timedelta(minutes=20)` is set on every task through
+`default_args`, and `dagrun_timeout=timedelta(hours=1)` on the DAG.
+
+When a task passes its `execution_timeout`, Airflow raises
+`AirflowTaskTimeout` inside the task process. The task is treated like any
+other failure: it lands in `up_for_retry` while retries remain, and in
+`failed` once they are used up, at which point `on_failure_callback` fires.
+So a hung Snowflake login costs at most 20 minutes, three times, before the
+phone buzzes, rather than holding a worker slot until someone notices.
+
+When a run passes its `dagrun_timeout`, the run is marked `failed` and its
+still-running tasks are stopped. With `max_active_runs=1`, this is what keeps
+a stuck run from blocking the next morning's schedule.
+
+## The failure alert (2026-10-29)
+
+`on_failure_callback` used to write one line to the task log, which is the
+one place nobody is looking when a run fails at 06:00. It now also posts one
+line, `dag_id.task_id try N failed` plus the log URL, to an ntfy.sh topic
+(`src/alerts.py`). The topic name is random and lives in `.env` as
+`NTFY_TOPIC`; the ntfy app on a phone subscribes to it. No account, no SMTP.
+A failed post is logged and swallowed: a broken alert must not turn one task
+failure into two exceptions.
+
+The callback fires after retries are exhausted, not on every attempt, so a
+transient failure that succeeds on retry stays quiet.
