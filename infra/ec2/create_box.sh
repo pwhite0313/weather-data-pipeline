@@ -6,18 +6,20 @@
 #   MY_IP        the laptop's public IPv4 (curl https://checkip.amazonaws.com)
 #   PUBLIC_KEY   the laptop's ~/.ssh/weather-ec2.pub, one line
 #   ALERT_EMAIL  where the budget alerts go
+#   BUDGET_USD   monthly budget, default 40 (a t3.medium running all month is about 36)
 #
 # Every create is one shot. Re-running reports "already exists" for what is
 # there and carries on; it never deletes anything.
 set -u
 REGION=us-east-2
 : "${MY_IP:?set MY_IP}" "${PUBLIC_KEY:?set PUBLIC_KEY}" "${ALERT_EMAIL:?set ALERT_EMAIL}"
+BUDGET_USD=${BUDGET_USD:-40}
 ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
 echo "account $ACCOUNT, region $REGION, ssh from $MY_IP/32"
 
-echo "== budget weather-hosting: 50 USD a month, alerts at 50, 80 and 100 percent"
+echo "== budget weather-hosting: $BUDGET_USD USD a month, alerts at 50, 80 and 100 percent"
 aws budgets create-budget --account-id "$ACCOUNT" \
-  --budget '{"BudgetName":"weather-hosting","BudgetLimit":{"Amount":"50","Unit":"USD"},"TimeUnit":"MONTHLY","BudgetType":"COST"}' \
+  --budget '{"BudgetName":"weather-hosting","BudgetLimit":{"Amount":"'"$BUDGET_USD"'","Unit":"USD"},"TimeUnit":"MONTHLY","BudgetType":"COST"}' \
   --notifications-with-subscribers "[
     {\"Notification\":{\"NotificationType\":\"ACTUAL\",\"ComparisonOperator\":\"GREATER_THAN\",\"Threshold\":50,\"ThresholdType\":\"PERCENTAGE\"},\"Subscribers\":[{\"SubscriptionType\":\"EMAIL\",\"Address\":\"$ALERT_EMAIL\"}]},
     {\"Notification\":{\"NotificationType\":\"ACTUAL\",\"ComparisonOperator\":\"GREATER_THAN\",\"Threshold\":80,\"ThresholdType\":\"PERCENTAGE\"},\"Subscribers\":[{\"SubscriptionType\":\"EMAIL\",\"Address\":\"$ALERT_EMAIL\"}]},
