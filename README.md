@@ -1,38 +1,30 @@
 # Weather Data Pipeline
 
-A daily ELT pipeline that pulls the five day forecast for 15 cities from the
-OpenWeatherMap API, lands the raw payloads and a flat CSV in S3, loads the
-CSV into Snowflake with `COPY INTO` through a storage integration, and builds
-analytics models with dbt. Airflow schedules it at 06:00 UTC on a small EC2
-instance; nothing of it runs on a laptop. A task failure reaches a phone, and
-a run that never happens reaches an inbox.
+**A daily weather pipeline: API to S3 to Snowflake to dbt, scheduled on EC2, alerting to a phone.**
 
-First unattended run: 2026-10-30, 50 seconds end to end, 600 rows, every
-test green. The run log is in [docs/pipeline_runs.md](docs/pipeline_runs.md).
+[![CI](https://github.com/pwhite0313/weather-data-pipeline/actions/workflows/ci.yml/badge.svg)](https://github.com/pwhite0313/weather-data-pipeline/actions/workflows/ci.yml)
+![tests](https://img.shields.io/badge/pytest-92-blue)
+![dbt tests](https://img.shields.io/badge/dbt%20tests-53-blue)
+![unattended](https://img.shields.io/badge/running%20unattended%20since-2026--10--30-brightgreen)
 
----
+Every morning at 06:00 UTC an EC2 instance pulls the five day forecast for 15
+cities, lands the raw payloads and a flat CSV in S3, loads Snowflake with
+`COPY INTO` through a storage integration, and builds and tests the dbt
+models. No laptop is involved. Loads are idempotent, so a retry never
+duplicates a row. A failing task reaches a phone once its retries are spent, a run that
+never happens reaches an inbox by 12:00 UTC, and the instance itself is watched
+by CloudWatch. Every claim in this README links to the log, query or decision
+record that proves it.
 
-## Contents
-
-- [Architecture](#architecture)
-- [The DAG](#the-dag)
-- [Numbers](#numbers)
-- [Decisions](#decisions)
-- [Quality and Reliability](#quality-and-reliability)
-- [Tech Stack](#tech-stack)
-- [dbt Models](#dbt-models)
-- [Repository Structure](#repository-structure)
-- [Database Schema](#database-schema)
-- [Failure Handling](#failure-handling)
-- [Testing](#testing)
-- [Known Limitations](#known-limitations)
-- [Incident Log](#incident-log)
-- [Setup](#setup)
-- [Running the Pipeline](#running-the-pipeline)
-- [dbt](#dbt)
-- [Snowflake](#snowflake)
-- [Where Postgres Fits](#where-postgres-fits)
-- [Sample Output (flat CSV)](#sample-output-flat-csv)
+| Claim | Evidence |
+|---|---|
+| Runs on EC2 with no AWS keys on the machine | [docs/hosting.md](docs/hosting.md): instance role for S3, key pair for Snowflake |
+| First unattended run green, 50 seconds, 600 rows, 60 of 60 in `dbt build` | [docs/pipeline_runs.md, 2026-10-30](docs/pipeline_runs.md#2026-10-30-the-first-unattended-run-read-three-ways-day-5) |
+| A task failure reaches a phone; the repaired task re-runs without a second API call | [docs/pipeline_runs.md, 2026-10-29](docs/pipeline_runs.md#2026-10-29-the-deliberate-failure-cleared-alone-day-4b) |
+| A run that never happens reaches an inbox, from outside the instance | [ADR 0002](docs/decisions/0002-stale-data-alert.md): test email received 2026-10-29 |
+| The instance itself is watched | [docs/hosting.md](docs/hosting.md#the-box): CloudWatch `StatusCheckFailed` alarm since 2026-10-30 |
+| A load retried after success loads nothing | [ADR 0001](docs/decisions/0001-load-idempotency.md): 600 rows, then 0 |
+| Secrets found in history were rotated; `gitleaks` runs on every push | [docs/security.md](docs/security.md) |
 
 ---
 
@@ -71,6 +63,30 @@ Airflow's own. Hosting details, access, and cost are in
 
 ---
 
+## Contents
+
+- [Architecture](#architecture)
+- [The DAG](#the-dag)
+- [Numbers](#numbers)
+- [Decisions](#decisions)
+- [Quality and Reliability](#quality-and-reliability)
+- [Tech Stack](#tech-stack)
+- [dbt Models](#dbt-models)
+- [Repository Structure](#repository-structure)
+- [Database Schema](#database-schema)
+- [Failure Handling](#failure-handling)
+- [Testing](#testing)
+- [Known Limitations](#known-limitations)
+- [Incident Log](#incident-log)
+- [Setup](#setup)
+- [Running the Pipeline](#running-the-pipeline)
+- [dbt](#dbt)
+- [Snowflake](#snowflake)
+- [Where Postgres Fits](#where-postgres-fits)
+- [Sample Output (flat CSV)](#sample-output-flat-csv)
+
+---
+
 ## The DAG
 
 `weather_daily`, schedule `0 6 * * *`, `catchup=False`, one active run at a
@@ -83,7 +99,7 @@ graph LR
 
 | Task | What it does | On failure |
 |---|---|---|
-| `extract` | 15 API calls with retry and timeout | 2 retries, 5 minutes apart |
+| `extract` | 15 API calls, 10 second timeout each, fails on the first bad response | 2 retries, 5 minutes apart |
 | `transform` | Flattens the payloads to the 34 column contract | same |
 | `write_to_s3` | Raw JSON per city, then one CSV stamped with lineage columns, under `dt=<data_interval_end>` | same |
 | `copy_into_snowflake` | `COPY INTO RAW.WEATHER_FORECAST` from that day's prefix, columns matched by name | same; a retry loads only files the failed attempt did not |
@@ -141,6 +157,10 @@ Written down as they were made, with the alternatives:
 - **No AWS keys on the box.** The instance role carries a policy limited to
   `PutObject` under `weather/*`; the fence was tested with a write to another
   prefix (`AccessDenied`). Snowflake assumes its own read-only role.
+- **The watcher for the instance lives outside it.** ntfy needs Airflow
+  running to fire and the Snowflake alert looks once a day, so a CloudWatch
+  alarm on `StatusCheckFailed` emails when the instance fails its checks or
+  stops reporting at all.
 - **Two warehouses.** `LOAD_WH` for `COPY`, `TRANSFORM_WH` for dbt, so a slow
   load never contends with a build and each is its own line in cost reporting.
 - **Secrets rotated, history kept.** An early commit held keys. They were
@@ -179,7 +199,7 @@ thresholds, and the alert message, and run on every push.
 | Hosting | EC2 `t3.medium`, Ubuntu 24.04, Docker Engine, created from CloudShell by script |
 | Language | Python 3.11, SQL |
 | Libraries | pandas, boto3, snowflake-connector-python, requests, pytest |
-| Alerts | ntfy.sh (task failures), Snowflake `SYSTEM$SEND_EMAIL` (missed runs) |
+| Alerts | ntfy.sh (task failures), Snowflake `SYSTEM$SEND_EMAIL` (missed runs), CloudWatch (the instance) |
 | CI | GitHub Actions: pytest, gitleaks over the full history |
 
 ---
@@ -358,9 +378,9 @@ a BI tool.
 The pipeline fails at the point of failure, says so on a phone, and never
 passes bad data downstream.
 
-**API or network failure.** `extract` raises on a non-200 or a timeout;
-Airflow retries twice, five minutes apart, then fails the run and the
-callback posts to ntfy. To simulate: set `OPENWEATHER_API_KEY=invalid` in
+**API or network failure.** `extract` raises on a non-200, a timeout or an
+empty body; the client does not retry on its own, Airflow does: twice, five
+minutes apart, then the run fails and the callback posts to ntfy. To simulate: set `OPENWEATHER_API_KEY=invalid` in
 `.env`, restart, trigger.
 
 **Transform failure.** Proven on 2026-10-29: `transform` was made to raise,
@@ -484,11 +504,14 @@ source schema name (`RAW` versus `raw`).
 
 ### October 2026: secrets in history
 
-A `gitleaks` scan of the full history found an API key, an Airflow Fernet key
-and a webserver secret in early commits. All three were rotated, the
-`airflow.cfg` that carried two of them was removed from tracking, the history
-was kept, and `gitleaks` was added to CI with the three fingerprints in
-`.gitleaksignore`. The account is in [docs/security.md](docs/security.md).
+A `gitleaks` scan of the full history found three Airflow secrets (the
+Fernet key and two signing keys) in a `config/airflow.cfg` that the official
+compose template had generated inside a container and the repo had picked
+up through a bind mount. All three were rotated, the file was removed from
+tracking, the history was kept, and `gitleaks` was added to CI with the
+three fingerprints in `.gitleaksignore`. No API key, AWS credential or
+private key was ever committed. The account is in
+[docs/security.md](docs/security.md).
 
 ---
 
@@ -590,9 +613,10 @@ dependency order, which is why the DAG uses it rather than `run` then `test`.
 ### Targets
 
 `DBT_TARGET` picks the target: `snowflake` (what `docker-compose.yml` sets
-for the DAG), or `dev` and `prod` for Postgres. Differences between the two
-databases are handled with `target.type` checks and dbt's cross-database
-macros, not duplicate SQL.
+for the DAG), or `dev` and `prod` for Postgres. The two databases differ in
+one `target.type` check (the source schema, `RAW` versus `raw`) and in
+dbt's cross-database macros for the current timestamp and date arithmetic;
+no model carries adapter-specific SQL.
 
 To regenerate the lineage graph: `dbt docs generate` inside the container.
 
