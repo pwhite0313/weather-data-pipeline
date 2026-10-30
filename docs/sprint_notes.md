@@ -481,3 +481,66 @@ exists, `dbt_source_freshness` stays red.
   `LOAD_WH` and `TRANSFORM_WH` since 06:00; then the reconciliation (CSV rows,
   `rows_loaded`, RAW rows for the run, staging rows after the dedupe) into
   `docs/pipeline_runs.md`, with minutes and credits as the baseline.
+
+## Day 5: the first unattended run, the README, the cleanup (2026-10-30)
+
+### Pipeline A: the run read three ways
+
+`scheduled__2026-10-29T06:00:00+00:00` ran at 06:00:00 UTC on the box with
+the laptop off and finished green at 06:00:50. Read from the task log, from
+`COPY_HISTORY` and `QUERY_HISTORY`, and from the bucket; all three agree on
+one file, 600 rows, 16 objects. The full entry, with the per-task timings,
+the warehouse seconds and the overlap count for day 8 (4408 of 6000 rows are
+re-forecasts by `(city_id, dt)`, 1764 of them identical in every API column),
+is in `docs/pipeline_runs.md`.
+
+- **Trap hit.** `WAREHOUSE_METERING_HISTORY` returns no rows, not an error,
+  for a role without `MONITOR` on the warehouse. The credits baseline is
+  blocked on a grant (below). Time on each warehouse stands in.
+- `RAW.WEATHER_STALE` evaluated at 12:00 UTC: `CONDITION_FALSE`. Correct.
+
+### Pipeline B: the README and the stale files
+
+- README rewritten for the pipeline as it is: S3 to Snowflake, the box, the
+  alerts, a Mermaid diagram instead of the old DAG screenshot, the numbers
+  from the first unattended run, the decisions with their ADRs, and a "Where
+  Postgres Fits" section in place of the Postgres instructions. The Status
+  line is gone.
+- Removed: `setup/load/copy_raw_tables.sql` and the internal stages in
+  `06_stage.sql` (superseded by `src/snowflake_loader.py` and the S3 stage;
+  the `DROP STAGE` lines are in a comment at the end of `06_stage.sql`),
+  `docs/postgres_to_snowflake.md` (the three errors are in the README's
+  incident log), `docs/airflow_dag.png` (the old DAG), `data/processed/`.
+- `Makefile`: `trigger` points at `weather_daily`, `backfill` and `psql` are
+  gone, `runs`, `load DT=` and `test` are new.
+- Still here until day 27: `src/postgres_loader.py`, its test, the Postgres
+  load in `src/main.py`, the `postgres-warehouse` service.
+
+### For Patrick (console steps, in order)
+
+1. In Snowflake as `ACCOUNTADMIN`, so the credits baseline can be read:
+   `GRANT MONITOR ON WAREHOUSE LOAD_WH TO ROLE WEATHER_ENGINEER;` and the same
+   for `TRANSFORM_WH`. Optional: `DROP STAGE IF EXISTS RAW.EXPORT_STAGE;` and
+   `RAW.JSON_STAGE`.
+2. Resource monitor on the account (ACCOUNTADMIN): check `TRIAL_GUARD` from
+   `00_account.sql` still exists and its quota is sensible for about 0.05
+   credits a day; `SHOW RESOURCE MONITORS;`.
+3. CloudWatch alarm on the instance: `StatusCheckFailed` >= 1 for 2 periods
+   of 5 minutes, action: email through an SNS topic. EC2 console, the
+   instance, Monitoring tab, "Create alarm".
+4. Repo link on the CV and LinkedIn.
+5. Optional: through the tunnel, a screenshot of the green grid for
+   `docs/airflow_grid.png`, if a picture is wanted next to the diagram.
+
+### End of day, 2026-10-30 (day 5)
+
+- **Where each block stopped.** 5A done and written up. 5B done: README,
+  Makefile, four files removed. Patrick's list above is open.
+- **Last error text.** None today. The one surprise was the empty metering
+  result, which is a grant, not an error.
+- **First ten minutes of tomorrow (day 6).** Read the second unattended run
+  the same three ways, shorter: `list-runs`, `COPY_HISTORY` for the file,
+  the S3 count. Then the four-part "done" evidence into the README's
+  opening paragraph and `pipeline_runs.md`. Then, in CloudShell, delete the
+  `weather-writer` access keys and user, and remove the AWS key lines from
+  the laptop `.env`.
