@@ -14,11 +14,25 @@ Where the pipeline runs when the laptop is off, and how to get at it.
 | Public IP | In the EC2 console, not written here (the repo is public). Not an Elastic IP: a stop and start changes it. Public IPv4 is billed per hour either way (about $0.005, about $3.65 a month). |
 | Created | 2026-10-29 by `infra/ec2/create_box.sh` from CloudShell |
 
+Everything on this page except the budget and the IAM roles is in `us-east-2`.
+The console opens in whichever region it last showed, and the Instances page
+in another region is honestly empty: when the instance "is not there", check
+the region selector (top right) first.
+
 **Price:** `t3.medium` on demand in `us-east-2`, $0.0416 an hour on
 2026-10-29 (from a third-party price aggregator; confirm on the AWS on-demand
 page when the first bill arrives), about $30.40 for a 730 hour month. Plus
 the disk (about $1.60 a month) and the public IPv4 (about $3.65): about $36
 a month running all the time, which is why the budget is $40.
+
+**Alarm:** `weather-airflow-status` in CloudWatch (Ohio), created 2026-10-30
+in the console. `StatusCheckFailed` on the instance, maximum over 5 minute
+periods, 2 of 2 periods at or above 1, email through the SNS topic
+`weather-alarms` (subscription confirmed). The same topic is notified on
+`INSUFFICIENT_DATA`, which is what a stopped or terminated instance looks
+like: the metric stops arriving. This is the watcher outside the box for the
+box itself; ntfy needs Airflow running to fire, and `RAW.WEATHER_STALE` does
+not look until 12:00 UTC.
 
 **Budget:** `weather-hosting`, $40 a month, email alerts at 50, 80 and 100
 percent. A budget alerts; it does not stop anything.
