@@ -22,16 +22,6 @@ CREATE FILE FORMAT IF NOT EXISTS RAW.JSON_FORMAT
   STRIP_OUTER_ARRAY = TRUE;
 
 
--- INTERNAL STAGES (manual PUT path)
--- Used by setup/load/copy_raw_tables.sql for the first loads, before S3.
--- Superseded by S3_WEATHER_STAGE below; kept until that COPY path is retired.
-CREATE STAGE IF NOT EXISTS RAW.EXPORT_STAGE
-  FILE_FORMAT = RAW.CSV_HEADER;
-
-CREATE STAGE IF NOT EXISTS RAW.JSON_STAGE
-  FILE_FORMAT = RAW.JSON_FORMAT;
-
-
 -- EXTERNAL STAGE ON S3 (2026-10-27)
 -- Authenticates through S3_WEATHER_INT (setup/07_storage_integration.sql), so
 -- no AWS keys live in Snowflake. Objects land under weather/raw/dt=.../ (one
@@ -42,3 +32,9 @@ CREATE STAGE IF NOT EXISTS RAW.S3_WEATHER_STAGE
 
 -- Proof the integration handshake works: lists the bucket prefix via the role.
 LIST @RAW.S3_WEATHER_STAGE;
+
+-- The internal stages RAW.EXPORT_STAGE and RAW.JSON_STAGE (the manual PUT
+-- path used for the first loads, before S3) were removed from this script on
+-- 2026-10-30. On an account where they still exist:
+--   DROP STAGE IF EXISTS RAW.EXPORT_STAGE;
+--   DROP STAGE IF EXISTS RAW.JSON_STAGE;

@@ -110,3 +110,61 @@ re-runs it and what depends on it, not what it depends on, so a repaired
 transform does not cost a second API call. The Snowflake half is load
 metadata (ADR 0001): the re-run wrote a new file name, so COPY loaded it, and
 the staging dedupe owns the overlap.
+
+## 2026-10-30: the first unattended run, read three ways (day 5)
+
+`scheduled__2026-10-29T06:00:00+00:00` on the box, laptop off, nobody logged
+in. Queued at 06:00:00.28 UTC, finished green at 06:00:50.81 UTC: 50 seconds
+end to end, eight tasks, one attempt each.
+
+**1. Airflow (task log and states-for-dag-run).**
+
+| Task | Started | Took | What it said |
+|---|---|---|---|
+| `extract` | 06:00:01 | 2.6 s | 15 cities |
+| `transform` | 06:00:05 | 0.5 s | 600 rows |
+| `write_to_s3` | 06:00:07 | 1.1 s | 15 raw objects (281,847 bytes) and `weather/flat/dt=2026-10-30/output_20261030_060007_746681.csv` (203,674 bytes), through the instance role |
+| `copy_into_snowflake` | 06:00:10 | 9.5 s | `LoadResult(files_loaded=1, rows_loaded=600, rows_parsed=600, errors_seen=0)` |
+| `validate_row_count` | 06:00:21 | 0.2 s | 600 rows this run |
+| `volume_anomaly_check` | 06:00:22 | 1.8 s | current=600 against a rolling average of 600 |
+| `dbt_source_freshness` | 06:00:25 | 8.2 s | `1 of 1 PASS freshness of raw.weather_forecast` |
+| `dbt_build` | 06:00:35 | 15.7 s | `PASS=60 WARN=0 ERROR=0 SKIP=0 NO-OP=0 TOTAL=60` |
+
+**2. Snowflake.** `COPY_HISTORY` for the table since yesterday shows five
+files, one per run, each `Loaded` with 600 rows and 0 errors; the last is
+today's at 06:00:11 UTC. `QUERY_HISTORY` for `WEATHER_SVC` between 05:59 and
+06:02 UTC: 3 queries on `LOAD_WH` (8.5 s elapsed in total) and 114 on
+`TRANSFORM_WH` (26.3 s). The serverless alert `RAW.WEATHER_STALE` evaluated at
+12:00 UTC and recorded `CONDITION_FALSE`, which is the quiet it is supposed to
+keep when data has landed.
+
+`WAREHOUSE_METERING_HISTORY` came back empty for `WEATHER_ENGINEER`: the role
+has no `MONITOR` privilege on the warehouses, so the function returns no rows
+rather than an error. The credits baseline waits on
+`GRANT MONITOR ON WAREHOUSE LOAD_WH TO ROLE WEATHER_ENGINEER` (and the same
+for `TRANSFORM_WH`) from `ACCOUNTADMIN`. Until then the time baseline stands
+in: about 9 seconds of `LOAD_WH` and 26 seconds of `TRANSFORM_WH` per run,
+both XSMALL with auto-suspend, so each run bills the 60 second minimum on
+each warehouse: 2 minutes of XSMALL a day, about 0.033 credits.
+
+**3. S3 against the table.** `weather/raw/dt=2026-10-30/` holds 15 objects
+and `weather/flat/dt=2026-10-30/` holds 1; `COPY_HISTORY` names that one file
+with 600 rows; `RAW.WEATHER_FORECAST` has 600 rows with
+`dag_run_id = scheduled__2026-10-29T06:00:00+00:00`. 15 cities by 40 forecast
+slots is 600. The three agree.
+
+Across the bucket: 165 raw objects and 11 flat CSVs. Nine of the eleven are
+in `COPY_HISTORY`; the other two landed on 2026-10-26 and 2026-10-27 from the
+laptop before the loader task existed, and were loaded into Postgres instead.
+The table's tenth source file is the September backfill (`output.json.gz`).
+
+**The overlap, counted for day 8.** `RAW.WEATHER_FORECAST` holds 6000 rows
+across 10 files. By the staging grain (`city_id`, `dt`) there are 1592
+distinct forecast slots, so 4408 rows are later re-forecasts of a slot an
+earlier run already covered. 1764 of those are byte-for-byte identical in
+every API column and differ only in lineage. Both numbers are what the
+staging `ROW_NUMBER()` dedupe removes on every build; `tie_count` stays at 1
+because `ingested_at` differs between runs.
+
+**Baseline for the hosted review (2026-11-09):** 50 seconds a run, 600 rows,
+16 objects, 60 of 60 in `dbt build`, 0 retries.
