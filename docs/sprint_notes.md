@@ -288,8 +288,11 @@ exists, `dbt_source_freshness` stays red.
   `LIST @RAW.S3_FLAT_STAGE` returned 3 rows, one CSV per run so far.
 - Created as WEATHER_ENGINEER rather than SYSADMIN plus a grant, to keep one
   owner for everything in RAW.
-- TODO (Patrick): one line, in your own words, on why SKIP_HEADER cannot be
-  set alongside PARSE_HEADER. Do not read the comment in 08_s3_stage.sql first.
+- Why SKIP_HEADER cannot be set alongside PARSE_HEADER: the two are answers
+  to the same question, what to do with the first row. SKIP_HEADER throws it
+  away and maps columns by position; PARSE_HEADER reads it and maps columns by
+  name. A format that did both would have deleted the row it needs to read,
+  so Snowflake refuses the combination rather than guess which one you meant.
 - The fallback (PUT through EXPORT_STAGE if LIST failed at 3:00) was not
   needed; the handshake was proven on day 1.
 
@@ -589,6 +592,16 @@ job it was written for, on real data, with nobody watching.
   (the laptop never needs to write to the bucket again; the box uses its
   role), then say so and the AWS key lines come out of the laptop `.env`.
   Run the credits query as `ACCOUNTADMIN` and paste the rows.
+
+### Closed later the same day
+
+- `weather-writer` access keys and user deleted from CloudShell; the laptop's
+  copy of the keys now returns `InvalidAccessKeyId`, and the two lines are
+  out of the laptop `.env`. Only the instance role can write to the bucket.
+- Credits baseline read as `ACCOUNTADMIN` and written into
+  `docs/pipeline_runs.md`: about 0.058 credits on a day nobody queries,
+  under $5 a month.
+- The SKIP_HEADER line above, written.
 
 ### End of day, 2026-11-03 (day 6)
 

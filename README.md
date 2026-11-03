@@ -59,7 +59,8 @@ graph LR
 The instance writes to S3 through an instance role, Snowflake reads the
 bucket through a storage integration and a second IAM role, and the only
 secrets on the box are the OpenWeather key, the Snowflake private key, and
-Airflow's own. Hosting details, access, and cost are in
+Airflow's own. No IAM user can write to the bucket: the one the laptop used
+during the build was deleted once the instance took over. Hosting details, access, and cost are in
 [docs/hosting.md](docs/hosting.md).
 
 ---
@@ -129,6 +130,7 @@ From the first unattended run, 2026-10-30 06:00 UTC, read from the task log,
 | dbt | `PASS=60 WARN=0 ERROR=0 SKIP=0 TOTAL=60` |
 | Warehouse time | about 9 s on `LOAD_WH`, 26 s on `TRANSFORM_WH`, both XSMALL |
 | Hosting | about $36 a month on a $40 budget |
+| Snowflake | about 0.058 credits a day when nobody is querying, under $5 a month |
 
 Since then, five scheduled runs through 2026-11-03: four green at 48 to 53
 seconds, one stopped by a dbt test on real bad data (see the incident log).
