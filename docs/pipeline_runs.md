@@ -241,5 +241,31 @@ WHERE start_time >= '2026-10-30'
 GROUP BY 1, 2 ORDER BY 2, 1;
 ```
 
-Expected shape: two rows a day, about 0.017 credits each (XSMALL, 60
-second minimum per resume), plus a few thousandths for the serverless alert.
+Run as `ACCOUNTADMIN` on 2026-11-03:
+
+| Day | LOAD_WH | TRANSFORM_WH | Other | Total |
+|---|---|---|---|---|
+| 2026-10-30 | 0.0789 | 0.0329 | 0.0007 | 0.1125 |
+| 2026-10-31 | 0.0259 | 0.0324 | | 0.0583 |
+| 2026-11-01 | 0.0264 | 0.0273 | 0.0003 | 0.0540 |
+| 2026-11-02 | 0.0255 | 0.0317 | | 0.0572 |
+| 2026-11-03 | 0.0726 | 0.0329 | | 0.1055 |
+
+**The baseline is a day nobody queried: about 0.058 credits**, 0.026 on
+`LOAD_WH` and 0.032 on `TRANSFORM_WH`. At the two to three dollars a credit
+of the common editions that is under 20 cents a day and under $5 a month,
+against about $36 for the instance. Snowflake is not where this pipeline's
+money goes.
+
+Reading the numbers: an XSMALL warehouse bills one credit an hour, at least
+60 seconds per resume, and keeps billing for the 60 second auto-suspend
+after the last query. `LOAD_WH` resumes at 06:00:10 for the `COPY`, serves
+the volume check at 06:00:22, and suspends about a minute after: around 90
+seconds, 0.026 credits. `TRANSFORM_WH` runs freshness and the build from
+06:00:25 to 06:00:50 and then idles out: about 115 seconds, 0.032. The
+failed build on 2026-11-01 was shorter and cost 0.027. The two expensive
+`LOAD_WH` days, 2026-10-30 and 2026-11-03, are the days these reads were run
+from the laptop on that warehouse, several resumes each: the cost of
+looking, not of running. Reads from a laptop should use `TRANSFORM_WH` or a
+warehouse of their own if that matters later; at these sizes it does not.
+The serverless alert is metered separately and did not show in this view.
