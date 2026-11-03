@@ -1,11 +1,11 @@
-# Weather Data Pipeline
+# Forecast to Warehouse
 
 **A daily weather pipeline: API to S3 to Snowflake to dbt, scheduled on EC2, alerting to a phone.**
 
 [![CI](https://github.com/pwhite0313/weather-data-pipeline/actions/workflows/ci.yml/badge.svg)](https://github.com/pwhite0313/weather-data-pipeline/actions/workflows/ci.yml)
 ![tests](https://img.shields.io/badge/pytest-92-blue)
 ![dbt tests](https://img.shields.io/badge/dbt%20tests-53-blue)
-![unattended](https://img.shields.io/badge/running%20unattended%20since-2026--10--30-brightgreen)
+![unattended](https://img.shields.io/badge/unattended%20since%202026--10--30-5%20scheduled%20runs-brightgreen)
 
 Every morning at 06:00 UTC an EC2 instance pulls the five day forecast for 15
 cities, lands the raw payloads and a flat CSV in S3, loads Snowflake with
@@ -19,7 +19,8 @@ record that proves it.
 | Claim | Evidence |
 |---|---|
 | Runs on EC2 with no AWS keys on the machine | [docs/hosting.md](docs/hosting.md): instance role for S3, key pair for Snowflake |
-| First unattended run green, 50 seconds, 600 rows, 60 of 60 in `dbt build` | [docs/pipeline_runs.md, 2026-10-30](docs/pipeline_runs.md#2026-10-30-the-first-unattended-run-read-three-ways-day-5) |
+| Five scheduled runs with nobody on the box, 2026-10-30 to 2026-11-03, about 50 seconds and 600 rows each | [docs/pipeline_runs.md, 2026-11-03](docs/pipeline_runs.md#2026-11-03-five-scheduled-runs-one-caught-by-a-test-day-6) |
+| A bad value from the API (humidity 101) stopped at the staging tests; the marts never saw it, the phone did | [docs/pipeline_runs.md, the failure on 2026-11-01](docs/pipeline_runs.md#the-failure-on-2026-11-01) |
 | A task failure reaches a phone; the repaired task re-runs without a second API call | [docs/pipeline_runs.md, 2026-10-29](docs/pipeline_runs.md#2026-10-29-the-deliberate-failure-cleared-alone-day-4b) |
 | A run that never happens reaches an inbox, from outside the instance | [ADR 0002](docs/decisions/0002-stale-data-alert.md): test email received 2026-10-29 |
 | The instance itself is watched | [docs/hosting.md](docs/hosting.md#the-box): CloudWatch `StatusCheckFailed` alarm since 2026-10-30 |
@@ -129,8 +130,10 @@ From the first unattended run, 2026-10-30 06:00 UTC, read from the task log,
 | Warehouse time | about 9 s on `LOAD_WH`, 26 s on `TRANSFORM_WH`, both XSMALL |
 | Hosting | about $36 a month on a $40 budget |
 
-`RAW.WEATHER_FORECAST` holds 6000 rows across 10 files. Each day's run
-re-forecasts most of the slots the previous day covered, so only 1592 of
+Since then, five scheduled runs through 2026-11-03: four green at 48 to 53
+seconds, one stopped by a dbt test on real bad data (see the incident log).
+`RAW.WEATHER_FORECAST` holds 8400 rows across 14 files. Each day's run
+re-forecasts most of the slots the previous day covered, so only 2070 of
 those rows are distinct `(city_id, dt)` slots; the staging model's
 `ROW_NUMBER()` keeps the latest forecast for each.
 
@@ -512,6 +515,19 @@ tracking, the history was kept, and `gitleaks` was added to CI with the
 three fingerprints in `.gitleaksignore`. No API key, AWS credential or
 private key was ever committed. The account is in
 [docs/security.md](docs/security.md).
+
+### November 2026: the API sent humidity 101
+
+The scheduled run on 2026-11-01 loaded 600 rows and then failed `dbt_build`:
+`accepted_range` on `main_humidity` found 101 for one Mexico City slot. The
+row stayed in RAW (raw is what the API said), staging had picked it as the
+newest forecast for that slot, the test stopped the build with 43 nodes
+skipped, the marts kept the previous day's build, and the failure reached
+the phone. The next morning the API's revised forecast for the slot said 81,
+won the dedupe, and the build passed 60 of 60 with no intervention. Open
+question for the dbt work: whether one-past-the-bound should warn rather than
+fail. The full trace is in
+[docs/pipeline_runs.md](docs/pipeline_runs.md#the-failure-on-2026-11-01).
 
 ---
 

@@ -168,3 +168,78 @@ because `ingested_at` differs between runs.
 
 **Baseline for the hosted review (2026-11-09):** 50 seconds a run, 600 rows,
 16 objects, 60 of 60 in `dbt build`, 0 retries.
+
+## 2026-11-03: five scheduled runs, one caught by a test (day 6)
+
+Every scheduled run since the box took the schedule, read from `list-runs`,
+`COPY_HISTORY`, and the bucket on 2026-11-03:
+
+| Ran at (UTC) | run_id | Partition | S3 | COPY | dbt build | Run |
+|---|---|---|---|---|---|---|
+| 2026-10-30 06:00 | `scheduled__2026-10-29T06:00:00+00:00` | `dt=2026-10-30` | 15 + 1 | 600 rows | 60 of 60 | success, 50 s |
+| 2026-10-31 06:00 | `scheduled__2026-10-30T06:00:00+00:00` | `dt=2026-10-31` | 15 + 1 | 600 rows | 60 of 60 | success, 50 s |
+| 2026-11-01 06:00 | `scheduled__2026-10-31T06:00:00+00:00` | `dt=2026-11-01` | 15 + 1 | 600 rows | **1 error, 43 skipped** | **failed, 44 s** |
+| 2026-11-02 06:00 | `scheduled__2026-11-01T06:00:00+00:00` | `dt=2026-11-02` | 15 + 1 | 600 rows | 60 of 60 | success, 48 s |
+| 2026-11-03 06:00 | `scheduled__2026-11-02T06:00:00+00:00` | `dt=2026-11-03` | 15 + 1 | 600 rows | 60 of 60 | success, 53 s |
+
+Nobody touched the box in those five days. `RAW.WEATHER_FORECAST` holds
+8400 rows across 14 files, 2070 distinct `(city_id, dt)` slots.
+`RAW.WEATHER_STALE` evaluated `CONDITION_FALSE` at 12:00 UTC on each of the
+five days: data had landed, so it stayed quiet.
+
+### The failure on 2026-11-01
+
+Seven tasks green, then `dbt_build`:
+
+```
+5 of 60 FAIL 1 dbt_utils_accepted_range_stg_weather__forecast_main_humidity__100__0
+Done. PASS=16 WARN=0 ERROR=1 SKIP=43 NO-OP=0 TOTAL=60
+```
+
+The API returned `main_humidity = 101` for Mexico City's 2026-11-02 12:00
+slot. The row loaded into RAW as it should (raw is what the API said), won
+the staging dedupe because it was the newest forecast for that slot, and
+failed the `accepted_range` test on `main_humidity` (0 to 100). `dbt build`
+stopped there: 16 nodes had passed, 43 downstream were skipped, the marts
+kept the previous day's build. `dbt_build` has no retries, so the run went
+`failed` at 06:00:44 and the callback posted to ntfy.
+
+The same slot across every run that forecast it:
+
+| Run | main_humidity |
+|---|---|
+| 2026-10-28, 10-29 (laptop and box) | 84 |
+| 2026-10-30 | 87 |
+| 2026-10-31 | 91 |
+| **2026-11-01** | **101** |
+| 2026-11-02 | 81 |
+
+The next morning's forecast said 81, became the staging winner, and the
+build passed 60 of 60 without anyone doing anything. The 101 is still in RAW,
+where it belongs, and is no longer in staging.
+
+What this proves: a bad value from upstream stopped at the staging layer, the
+marts never saw it, and the phone knew within a minute of the build. What it
+raises, for the dbt days: whether a value one past the bound should fail the
+build or warn (a `severity: warn` with an `error_if` threshold), and whether
+staging should clamp or null a physically impossible humidity rather than
+pass it through. Neither is changed today; the fail-loud behaviour is the
+one the pipeline was designed for and it did what it said.
+
+### Credits
+
+`WAREHOUSE_METERING_HISTORY` in `INFORMATION_SCHEMA` still returns no rows
+for `WEATHER_ENGINEER`, with `MONITOR` on both warehouses granted on
+2026-10-30. The function needs the account-level `MONITOR USAGE` privilege,
+not `MONITOR` on the warehouse. The baseline query, to run as
+`ACCOUNTADMIN`:
+
+```sql
+SELECT warehouse_name, DATE(start_time) AS day, ROUND(SUM(credits_used), 4) AS credits
+FROM SNOWFLAKE.ACCOUNT_USAGE.WAREHOUSE_METERING_HISTORY
+WHERE start_time >= '2026-10-30'
+GROUP BY 1, 2 ORDER BY 2, 1;
+```
+
+Expected shape: two rows a day, about 0.017 credits each (XSMALL, 60
+second minimum per resume), plus a few thousandths for the serverless alert.

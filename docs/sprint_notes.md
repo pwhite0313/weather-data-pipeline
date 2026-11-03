@@ -544,3 +544,58 @@ is in `docs/pipeline_runs.md`.
   opening paragraph and `pipeline_runs.md`. Then, in CloudShell, delete the
   `weather-writer` access keys and user, and remove the AWS key lines from
   the laptop `.env`.
+
+## Day 6: done (2026-11-03)
+
+### The second read, and the three after it
+
+Five scheduled runs since the handover, no hands on the box. Four green at
+about 50 seconds; the one on 2026-11-01 failed at `dbt_build` because the
+API sent `main_humidity = 101` for one Mexico City slot, the staging
+`accepted_range` test caught it, the marts kept the previous build, the
+phone got the alert, and the next morning's revised forecast (81) replaced
+the row in staging on its own. Full entry in `docs/pipeline_runs.md`. That
+failure is the best thing in the run log: it is the quality gate doing the
+job it was written for, on real data, with nobody watching.
+
+- **Trap hit.** `INFORMATION_SCHEMA.WAREHOUSE_METERING_HISTORY` needs the
+  account privilege `MONITOR USAGE`, not `MONITOR` on the warehouse. The
+  grants from day 5 were correct for `QUERY_HISTORY` and `SHOW WAREHOUSES`
+  and not for this. The baseline query is in `pipeline_runs.md`, to run as
+  `ACCOUNTADMIN`.
+
+### "Done", the four parts
+
+1. **Public repo, clean scan.** `gitleaks` green on every push since PR #3;
+   the three historical findings rotated and fingerprinted.
+2. **Scheduled, off the laptop.** `weather_daily` on the box at 06:00 UTC,
+   five scheduled runs 2026-10-30 to 2026-11-03, laptop stack stopped since
+   2026-10-29.
+3. **Each run lands in Snowflake.** Five files in `COPY_HISTORY`, 600 rows
+   each, `dbt build` 60 of 60 on four of five days, the fifth stopped by a
+   test as designed.
+4. **Failures reach a person.** ntfy from a real failure (2026-10-29 on
+   purpose, 2026-11-01 for real); the stale alert proven by email on
+   2026-10-29 and quiet on five fresh days; CloudWatch on the instance since
+   2026-10-30.
+
+### Also today
+
+- README: H1 is now "Forecast to Warehouse", the badge and the evidence
+  table carry the five runs, the November incident is in the log, and the
+  social card (`docs/social_card.png`) is committed. It is the GitHub social
+  preview and the LinkedIn card.
+- For Patrick: delete the `weather-writer` access keys and user in CloudShell
+  (the laptop never needs to write to the bucket again; the box uses its
+  role), then say so and the AWS key lines come out of the laptop `.env`.
+  Run the credits query as `ACCOUNTADMIN` and paste the rows.
+
+### End of day, 2026-11-03 (day 6)
+
+- **Where each block stopped.** Days 1 to 6 done. The pipeline is the thing
+  the next 31 days study.
+- **Last error text.** `5 of 60 FAIL 1 dbt_utils_accepted_range_stg_weather__forecast_main_humidity__100__0`,
+  from the API, on 2026-11-01, handled by the pipeline without a person.
+- **First ten minutes of day 7.** Open the study guide at day 7. Do not
+  open the box. Check the phone has no ntfy message and the inbox has no
+  Snowflake email; that is the whole daily check from here on.
