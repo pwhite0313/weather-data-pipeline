@@ -57,7 +57,7 @@ dbt_build              Done. PASS=60 WARN=0 ERROR=0 SKIP=0 NO-OP=0 TOTAL=60
 `dbt_source_freshness` passed for the first time since 2026-10-15; the
 thresholds are back to 26 and 50 hours. `RAW.WEATHER_FORECAST` now holds 2400
 rows across four run ids. Three of them are the same day's forecasts, so the
-staging dedupe has real overlap to remove; day 5 counts it.
+staging dedupe has real overlap to remove; the 2026-10-30 entry counts it.
 
 ## 2026-10-29: first run on the box, i-06974584beba5796b
 
@@ -83,7 +83,7 @@ Between the laptop handover and this run, the laptop's scheduler had already
 run the 06:00 UTC runs of 2026-10-28 and 2026-10-29 on its own (600 rows
 each), so `RAW.WEATHER_FORECAST` holds 4200 rows across seven run ids.
 
-## 2026-10-29: the deliberate failure, cleared alone (day 4B)
+## 2026-10-29: the deliberate failure, cleared alone
 
 `src/transform.py` on the box was made to raise on entry (an uncommitted
 edit, reverted afterwards), and `manual__break_1` was triggered at 16:53:53
@@ -105,13 +105,13 @@ copy_into_snowflake    COPY query 01c80ee1-0209-6b57-0010-849600200322: 1 file(s
 dbt_build              Done. PASS=60 WARN=0 ERROR=0 SKIP=0 NO-OP=0 TOTAL=60
 ```
 
-That sentence is the Airflow half of the idempotency answer: clearing a task
+That is the Airflow half of idempotency: clearing a task
 re-runs it and what depends on it, not what it depends on, so a repaired
 transform does not cost a second API call. The Snowflake half is load
 metadata (ADR 0001): the re-run wrote a new file name, so COPY loaded it, and
 the staging dedupe owns the overlap.
 
-## 2026-10-30: the first unattended run, read three ways (day 5)
+## 2026-10-30: the first unattended run, read three ways
 
 `scheduled__2026-10-29T06:00:00+00:00` on the box, laptop off, nobody logged
 in. Queued at 06:00:00.28 UTC, finished green at 06:00:50.81 UTC: 50 seconds
@@ -138,14 +138,10 @@ today's at 06:00:11 UTC. `QUERY_HISTORY` for `WEATHER_SVC` between 05:59 and
 12:00 UTC and recorded `CONDITION_FALSE`, which is the quiet it is supposed to
 keep when data has landed.
 
-`WAREHOUSE_METERING_HISTORY` came back empty for `WEATHER_ENGINEER`: the role
-has no `MONITOR` privilege on the warehouses, so the function returns no rows
-rather than an error. The credits baseline waits on
-`GRANT MONITOR ON WAREHOUSE LOAD_WH TO ROLE WEATHER_ENGINEER` (and the same
-for `TRANSFORM_WH`) from `ACCOUNTADMIN`. Until then the time baseline stands
-in: about 9 seconds of `LOAD_WH` and 26 seconds of `TRANSFORM_WH` per run,
-both XSMALL with auto-suspend, so each run bills the 60 second minimum on
-each warehouse: 2 minutes of XSMALL a day, about 0.033 credits.
+`WAREHOUSE_METERING_HISTORY` came back empty for `WEATHER_ENGINEER`, so the
+credits were read later as `ACCOUNTADMIN` (see Credits, below). The time
+baseline: about 9 seconds of `LOAD_WH` and 26 seconds of `TRANSFORM_WH` per
+run, both XSMALL with auto-suspend.
 
 **3. S3 against the table.** `weather/raw/dt=2026-10-30/` holds 15 objects
 and `weather/flat/dt=2026-10-30/` holds 1; `COPY_HISTORY` names that one file
@@ -158,7 +154,7 @@ in `COPY_HISTORY`; the other two landed on 2026-10-26 and 2026-10-27 from the
 laptop before the loader task existed, and were loaded into Postgres instead.
 The table's tenth source file is the September backfill (`output.json.gz`).
 
-**The overlap, counted for day 8.** `RAW.WEATHER_FORECAST` holds 6000 rows
+**The overlap.** `RAW.WEATHER_FORECAST` holds 6000 rows
 across 10 files. By the staging grain (`city_id`, `dt`) there are 1592
 distinct forecast slots, so 4408 rows are later re-forecasts of a slot an
 earlier run already covered. 1764 of those are byte-for-byte identical in
@@ -169,7 +165,7 @@ because `ingested_at` differs between runs.
 **Baseline for the hosted review (2026-11-09):** 50 seconds a run, 600 rows,
 16 objects, 60 of 60 in `dbt build`, 0 retries.
 
-## 2026-11-03: five scheduled runs, one caught by a test (day 6)
+## 2026-11-03: five scheduled runs, one caught by a test
 
 Every scheduled run since the box took the schedule, read from `list-runs`,
 `COPY_HISTORY`, and the bucket on 2026-11-03:
@@ -220,7 +216,7 @@ where it belongs, and is no longer in staging.
 
 What this proves: a bad value from upstream stopped at the staging layer, the
 marts never saw it, and the phone knew within a minute of the build. What it
-raises, for the dbt days: whether a value one past the bound should fail the
+raises: whether a value one past the bound should fail the
 build or warn (a `severity: warn` with an `error_if` threshold), and whether
 staging should clamp or null a physically impossible humidity rather than
 pass it through. Neither is changed today; the fail-loud behaviour is the

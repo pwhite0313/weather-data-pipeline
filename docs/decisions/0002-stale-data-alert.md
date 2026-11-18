@@ -4,7 +4,7 @@ Date: 2026-10-29. Status: accepted. Test email received 2026-10-29 16:58 UTC.
 
 ## Context
 
-The DAG's failure callback (ADR-adjacent: `docs/airflow_answers.md`) posts to
+The DAG's failure callback (`docs/dag_settings.md`) posts to
 a phone when a task fails. It cannot report the case where nothing runs: the
 instance stopped, the scheduler hung, the DAG was paused, the laptop that
 used to own the schedule was shut. In every one of those, no task fails and

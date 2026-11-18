@@ -15,15 +15,13 @@ Where the pipeline runs when the laptop is off, and how to get at it.
 | Created | 2026-10-29 by `infra/ec2/create_box.sh` from CloudShell |
 
 Everything on this page except the budget and the IAM roles is in `us-east-2`.
-The console opens in whichever region it last showed, and the Instances page
-in another region is honestly empty: when the instance "is not there", check
-the region selector (top right) first.
+When the instance "is not there" in the console, check the region selector
+first.
 
 **Price:** `t3.medium` on demand in `us-east-2`, $0.0416 an hour on
-2026-10-29 (from a third-party price aggregator; confirm on the AWS on-demand
-page when the first bill arrives), about $30.40 for a 730 hour month. Plus
-the disk (about $1.60 a month) and the public IPv4 (about $3.65): about $36
-a month running all the time, which is why the budget is $40.
+2026-10-29 (from a price aggregator, not yet checked against a bill), about
+$30.40 for a 730 hour month. With the disk (about $1.60) and the public IPv4
+(about $3.65) that is about $36 a month, which is why the budget is $40.
 
 **Alarm:** `weather-airflow-status` in CloudWatch (Ohio), created 2026-10-30
 in the console. `StatusCheckFailed` on the instance, maximum over 5 minute
@@ -97,8 +95,7 @@ ls ~/weather/logs/dag_id=weather_daily/                    # one folder per run,
 
 ## Review
 
-The hosted review (the guide's day 16) is the day after the tenth hosted
-run. First hosted run: 2026-10-29 (manual). First scheduled: 2026-10-30 06:00
-UTC. Tenth scheduled run: 2026-11-08, green. The review planned for
+The hosted review was set for the day after the tenth hosted run. First
+hosted run: 2026-10-29 (manual). First scheduled: 2026-10-30 06:00 UTC. Tenth scheduled run: 2026-11-08, green. The review planned for
 2026-11-09 was held on 2026-11-18, after twenty scheduled runs; the read is
 in [pipeline_runs.md](pipeline_runs.md#2026-11-18-twenty-scheduled-runs-nineteen-green).

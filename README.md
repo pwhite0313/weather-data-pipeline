@@ -21,7 +21,7 @@ record that proves it.
 | Runs on EC2 with no AWS keys on the machine | [docs/hosting.md](docs/hosting.md): instance role for S3, key pair for Snowflake |
 | Twenty scheduled runs with nobody on the box, 2026-10-30 to 2026-11-18, nineteen green, 48 to 62 seconds and 600 rows each | [docs/pipeline_runs.md, 2026-11-18](docs/pipeline_runs.md#2026-11-18-twenty-scheduled-runs-nineteen-green) |
 | A bad value from the API (humidity 101) stopped at the staging tests; the marts never saw it, the phone did | [docs/pipeline_runs.md, the failure on 2026-11-01](docs/pipeline_runs.md#the-failure-on-2026-11-01) |
-| A task failure reaches a phone; the repaired task re-runs without a second API call | [docs/pipeline_runs.md, 2026-10-29](docs/pipeline_runs.md#2026-10-29-the-deliberate-failure-cleared-alone-day-4b) |
+| A task failure reaches a phone; the repaired task re-runs without a second API call | [docs/pipeline_runs.md, 2026-10-29](docs/pipeline_runs.md#2026-10-29-the-deliberate-failure-cleared-alone) |
 | A run that never happens reaches an inbox, from outside the instance | [ADR 0002](docs/decisions/0002-stale-data-alert.md): test email received 2026-10-29 |
 | The instance itself is watched | [docs/hosting.md](docs/hosting.md#the-box): CloudWatch `StatusCheckFailed` alarm since 2026-10-30 |
 | A load retried after success loads nothing | [ADR 0001](docs/decisions/0001-load-idempotency.md): 600 rows, then 0 |
@@ -113,7 +113,7 @@ graph LR
 Every task has a 20 minute `execution_timeout`, and every failure that
 exhausts its retries calls `on_failure_callback`, which posts to an ntfy.sh
 topic. The reasoning behind each setting is in
-[docs/airflow_answers.md](docs/airflow_answers.md).
+[docs/dag_settings.md](docs/dag_settings.md).
 
 ---
 
@@ -158,7 +158,7 @@ Written down as they were made, with the alternatives:
   them, so a transform bug costs a rerun, not a day's data.
 - **The run's date is `data_interval_end`, not `ds`.** The 06:00 run on the
   30th is Airflow's run *for* the 29th; the objects belong under the day they
-  landed. [docs/airflow_answers.md](docs/airflow_answers.md) has the worked example.
+  landed. [docs/dag_settings.md](docs/dag_settings.md) has the worked example.
 - **No AWS keys on the box.** The instance role carries a policy limited to
   `PutObject` under `weather/*`; the fence was tested with a write to another
   prefix (`AccessDenied`). Snowflake assumes its own read-only role.
@@ -273,10 +273,9 @@ weather-data-pipeline/
 ├── docs/
 │   ├── pipeline_runs.md           # every load, with what COPY returned
 │   ├── decisions/                 # ADRs
-│   ├── airflow_answers.md         # why each DAG setting is what it is
+│   ├── dag_settings.md            # why each DAG setting is what it is
 │   ├── hosting.md                 # the box: access, credentials, cost, review date
 │   ├── security.md                # the secret scan and the rotation
-│   ├── sprint_notes.md            # the build, day by day
 │   ├── dbt_lineage.png
 │   └── social_card.png
 ├── data/raw/                      # CSVs from CLI runs; gitignored
@@ -585,8 +584,8 @@ Run `setup/00_account.sql` through `09_alerts.sql`, each under the role its
 header names. The order is numeric with one exception: on a fresh account
 `07_storage_integration.sql` runs before `06_stage.sql`, because the stage in
 06 is built on the integration 07 creates. Scripts 06, 07 and 08 name this
-project's bucket (`pw-weather-2026`) and 07 names its IAM role; change them
-to yours first. The [Snowflake](#snowflake) section lists what each script
+project's bucket (`pw-weather-2026`), and 07 names the IAM role with a
+placeholder for the AWS account id; change them to yours first. The [Snowflake](#snowflake) section lists what each script
 does. Generate the key pair with the two commands in `keys/README.md` and
 paste the public half into `04_service_user.sql` before running it.
 
@@ -621,7 +620,7 @@ once, which is a useful first run.
 ## Running the Pipeline
 
 ```bash
-make trigger          # one run now (lands in yesterday's dt= before 06:00 UTC, see airflow_answers.md)
+make trigger          # one run now (lands in yesterday's dt= before 06:00 UTC, see dag_settings.md)
 make runs             # every run with its state
 make load DT=2026-10-30   # COPY one partition by hand; a repeat loads nothing
 make logs             # tail the scheduler

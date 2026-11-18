@@ -7,11 +7,12 @@
 -- for any change after the first CREATE.
 USE ROLE ACCOUNTADMIN;
 
+-- Replace <aws-account-id> with the account that owns the role.
 CREATE STORAGE INTEGRATION IF NOT EXISTS S3_WEATHER_INT
   TYPE = EXTERNAL_STAGE
   STORAGE_PROVIDER = 'S3'
   ENABLED = TRUE
-  STORAGE_AWS_ROLE_ARN = 'arn:aws:iam::870947613885:role/snowflake-weather-read'
+  STORAGE_AWS_ROLE_ARN = 'arn:aws:iam::<aws-account-id>:role/snowflake-weather-read'
   STORAGE_ALLOWED_LOCATIONS = ('s3://pw-weather-2026/weather/');
 
 -- Pass two: copy STORAGE_AWS_IAM_USER_ARN and STORAGE_AWS_EXTERNAL_ID from this
