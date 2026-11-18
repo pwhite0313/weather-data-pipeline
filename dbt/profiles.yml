@@ -31,4 +31,4 @@ weather_pipeline:
       schema: STAGING
       threads: 4
 
-  target: "{{ env_var('DBT_TARGET', 'dev') }}"
+  target: "{{ env_var('DBT_TARGET', 'snowflake') }}"
