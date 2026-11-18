@@ -16,5 +16,9 @@ CREATE SCHEMA IF NOT EXISTS WEATHER_DB.INTERMEDIATE
     COMMENT = 'dbt intermediate models';
 CREATE SCHEMA IF NOT EXISTS WEATHER_DB.REPORTS
     COMMENT = 'dbt report models';
+-- WEATHER_ENGINEER cannot create schemas, so every schema dbt writes to is
+-- created here. snp_city sets target_schema='snapshots'.
+CREATE SCHEMA IF NOT EXISTS WEATHER_DB.SNAPSHOTS
+    COMMENT = 'dbt snapshots, type 2 history';
 
 SHOW SCHEMAS IN DATABASE WEATHER_DB;

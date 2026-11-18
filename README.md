@@ -513,6 +513,14 @@ Three: `EXTRACT(EPOCH FROM ...)` in the same model, replaced with
 targets from the same SQL; the only `target.type` check in the project is the
 source schema name (`RAW` versus `raw`).
 
+The restriction did not hold on the live account. A `CREATE SCHEMA` grant
+made by hand on 2026-09-23 let dbt create `SNAPSHOTS` for `snp_city` itself,
+and nothing in `setup/` recorded either. A fresh account built from the
+scripts would have failed at the snapshot. Found on 2026-11-18 by comparing
+`SHOW SCHEMAS` and `SHOW GRANTS` with the scripts: `SNAPSHOTS` is now created
+in `02_database.sql` and granted in `03_roles_and_grants.sql`. Revoking the
+hand-made grant on the live account is the one step left.
+
 ### October 2026: secrets in history
 
 A `gitleaks` scan of the full history found three Airflow secrets (the
@@ -656,7 +664,7 @@ order it has to run:
 |---|---|---|
 | `00_account.sql` | ACCOUNTADMIN | Account timezone UTC, `TRIAL_GUARD` resource monitor |
 | `01_warehouses.sql` | SYSADMIN | `LOAD_WH` for `COPY INTO` and `TRANSFORM_WH` for dbt, both XSMALL with auto-suspend |
-| `02_database.sql` | SYSADMIN | `WEATHER_DB` with `RAW`, `STAGING`, `INTERMEDIATE`, `ANALYTICS` and `REPORTS`; drops `PUBLIC` |
+| `02_database.sql` | SYSADMIN | `WEATHER_DB` with `RAW`, `STAGING`, `INTERMEDIATE`, `ANALYTICS`, `REPORTS` and `SNAPSHOTS`; drops `PUBLIC` |
 | `03_roles_and_grants.sql` | USERADMIN / SECURITYADMIN / SYSADMIN | `WEATHER_ENGINEER`: usage on both warehouses, create table and view on every schema, future grants on `RAW` |
 | `04_service_user.sql` | USERADMIN | `WEATHER_SVC`, `TYPE = SERVICE`, key-pair auth, no password |
 | `05_raw_tables.sql` | WEATHER_ENGINEER | `RAW.WEATHER_FORECAST` |
