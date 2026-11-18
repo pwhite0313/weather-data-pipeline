@@ -200,7 +200,7 @@ thresholds, and the alert message, and run on every push.
 | Orchestration | Apache Airflow 2.8 (LocalExecutor, Docker Compose) |
 | Landing | Amazon S3, IAM (instance role for writes, assumed role for Snowflake reads) |
 | Warehouse | Snowflake (storage integration, external stage, `COPY INTO`, serverless alert) |
-| Transformation | dbt (dbt-snowflake; dbt-postgres for the local target) |
+| Transformation | dbt 1.11 (dbt-snowflake; dbt-postgres for the local target) |
 | Hosting | EC2 `t3.medium`, Ubuntu 24.04, Docker Engine, created from CloudShell by script |
 | Language | Python 3.11, SQL |
 | Libraries | pandas, boto3, snowflake-connector-python, requests, pytest |
@@ -415,10 +415,11 @@ on a table that stopped receiving data. To simulate: set
 
 **Data quality.** `dbt build` runs and tests each model in dependency order,
 so a failing test on staging stops the marts from being built on data known
-to be bad. To simulate in Snowflake:
-`UPDATE RAW.WEATHER_FORECAST SET weather_id = NULL WHERE city_id = 5128581;`
-then trigger; `dbt_build` fails on `not_null` for `weather_id`. Restore with
-`UPDATE RAW.WEATHER_FORECAST SET weather_id = 500 WHERE weather_id IS NULL;`.
+to be bad. Proven on real data on 2026-11-01, when the API sent humidity 101
+(see the incident log). To simulate without touching RAW: set `max_value: 50`
+on the `main_humidity` range test in
+`dbt/models/staging/weather/schema.yml`, trigger, restore. `dbt_build` fails
+on `accepted_range` and the marts keep their previous build.
 
 **The run that never happens.** None of the above fires when the box is down
 or the scheduler is wedged, which is why `RAW.WEATHER_STALE` evaluates in
@@ -474,6 +475,14 @@ reindexes every frame to a fixed 34 column list, filling absent columns with
 nulls and dropping unrecognized ones with a warning, and pins dtypes so a
 null never turns an integer column into `10000.0`. Adding a genuinely new API
 field is a one line change to `FORECAST_COLUMNS` plus an `ALTER TABLE`.
+
+**Staging reads all of RAW on every build.** `stg_weather__forecast`
+dedupes the whole raw table each run, and RAW grows by 600 rows a day. Over
+the first twenty scheduled runs the run time moved from about 50 seconds to
+between 55 and 60. The cause has not been traced; this is the likely one. It
+does not matter at this size, and the fix when it does is an incremental
+staging model. The numbers are in the 2026-11-18 entry of
+[docs/pipeline_runs.md](docs/pipeline_runs.md).
 
 **Pinned dbt and provider versions.** `requirements-airflow.txt` pins
 `dbt-core` and the adapters to match `requirements.txt` exactly, and the
@@ -572,9 +581,13 @@ account, a Snowflake account in the same AWS region as the bucket.
 
 ### Snowflake
 
-Run `setup/00_account.sql` through `09_alerts.sql` in order, each under the
-role its header names. The [Snowflake](#snowflake) section lists what each
-one does. Generate the key pair with the two commands in `keys/README.md` and
+Run `setup/00_account.sql` through `09_alerts.sql`, each under the role its
+header names. The order is numeric with one exception: on a fresh account
+`07_storage_integration.sql` runs before `06_stage.sql`, because the stage in
+06 is built on the integration 07 creates. Scripts 06, 07 and 08 name this
+project's bucket (`pw-weather-2026`) and 07 names its IAM role; change them
+to yours first. The [Snowflake](#snowflake) section lists what each script
+does. Generate the key pair with the two commands in `keys/README.md` and
 paste the public half into `04_service_user.sql` before running it.
 
 ### Environment
@@ -657,8 +670,9 @@ To regenerate the lineage graph: `dbt docs generate` inside the container.
 
 ## Snowflake
 
-Everything needed to stand the account up is in `setup/`, numbered in the
-order it has to run:
+Everything needed to stand the account up is in `setup/`. The numbers are
+the order the scripts were written in, which is the order to run them except
+that 07 goes before 06:
 
 | Script | Role | What it does |
 |---|---|---|
@@ -706,8 +720,9 @@ What remains, on purpose, until the package rewrite: the `postgres-warehouse`
 service in `docker-compose.yml`, `src/postgres_loader.py` and its test, the
 Postgres load at the end of `src/main.py`, and the `dev` and `prod` targets in
 `dbt/profiles.yml`. Neither is the default: `dbt build --target dev` runs the
-dbt project against a local Postgres with no cloud accounts, which is still
-a useful way to read the SQL.
+dbt project against the local Postgres, which is still a useful way to read
+the SQL. Loading that Postgres is not free of the cloud: `src/main.py` lands
+in S3 before it loads, so it needs the bucket settings.
 
 ---
 
