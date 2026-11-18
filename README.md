@@ -205,7 +205,7 @@ thresholds, and the alert message, and run on every push.
 | Language | Python 3.11, SQL |
 | Libraries | pandas, boto3, snowflake-connector-python, requests, pytest |
 | Alerts | ntfy.sh (task failures), Snowflake `SYSTEM$SEND_EMAIL` (missed runs), CloudWatch (the instance) |
-| CI | GitHub Actions: pytest, gitleaks over the full history |
+| CI | GitHub Actions: pytest, `dbt parse`, gitleaks over the full history |
 
 ---
 
@@ -232,8 +232,8 @@ the singular test `assert_temp_within_min_max.sql` and the custom generic
 ## Repository Structure
 
 ```
-weather_pipeline/
-├── .github/workflows/ci.yml       # pytest on 3.11, gitleaks over the full history
+weather-data-pipeline/
+├── .github/workflows/ci.yml       # pytest on 3.11, dbt parse, gitleaks over the full history
 ├── dags/
 │   └── weather_daily.py           # the DAG: eight tasks, retries, timeouts, failure callback
 ├── src/
@@ -257,9 +257,10 @@ weather_pipeline/
 │   ├── snapshots/snp_city.sql
 │   ├── tests/                     # singular test and the is_non_negative generic
 │   ├── macros/generate_schema_name.sql
-│   ├── profiles.yml               # dev and prod (Postgres), snowflake
+│   ├── profiles.yml               # snowflake (the default), dev and prod (Postgres)
 │   ├── dbt_project.yml
-│   └── packages.yml
+│   ├── packages.yml
+│   └── README.md
 ├── setup/                         # Snowflake, run once in order; see the Snowflake section
 │   ├── 00_account.sql … 05_raw_tables.sql
 │   ├── 06_stage.sql               # file formats, the external stage on S3
@@ -276,15 +277,18 @@ weather_pipeline/
 │   ├── hosting.md                 # the box: access, credentials, cost, review date
 │   ├── security.md                # the secret scan and the rotation
 │   ├── sprint_notes.md            # the build, day by day
-│   └── dbt_lineage.png
+│   ├── dbt_lineage.png
+│   └── social_card.png
 ├── data/raw/                      # CSVs from CLI runs; gitignored
 ├── keys/README.md                 # how to generate the Snowflake key pair; the keys are not committed
 ├── docker-compose.yml             # scheduler, webserver, Airflow metadata DB, the local Postgres warehouse
 ├── Dockerfile
 ├── Makefile
+├── pytest.ini
 ├── requirements.txt               # the venv and CI; regenerated from a clean venv
 ├── requirements-airflow.txt       # what the image installs
-└── .env.example                   # every variable the stack reads, with none of the values
+├── .env.example                   # every variable the stack reads, with none of the values
+└── .gitleaksignore                # the three rotated fingerprints, see docs/security.md
 ```
 
 ---
@@ -446,8 +450,10 @@ python -m pytest tests/ -v
 - `test_alerts.py`: the message text and that a failed post never raises
 - `test_postgres_loader.py`: `parse_source_file_ts` and the load result format
 
-CI (`.github/workflows/ci.yml`) runs the suite on Python 3.11 and `gitleaks`
-over the full git history on every push and pull request to `master`.
+CI (`.github/workflows/ci.yml`) runs the suite on Python 3.11, parses the dbt
+project with no warehouse connection (so the 53 is counted, not run), and
+runs `gitleaks` over the full git history on every push and pull request to
+`master`.
 
 ---
 
@@ -630,8 +636,9 @@ dependency order, which is why the DAG uses it rather than `run` then `test`.
 
 ### Targets
 
-`DBT_TARGET` picks the target: `snowflake` (what `docker-compose.yml` sets
-for the DAG), or `dev` and `prod` for Postgres. The two databases differ in
+`DBT_TARGET` picks the target: `snowflake` (the default, and what
+`docker-compose.yml` sets for the DAG), or `dev` and `prod` for Postgres,
+which are only used when asked for by name. The two databases differ in
 one `target.type` check (the source schema, `RAW` versus `raw`) and in
 dbt's cross-database macros for the current timestamp and date arithmetic;
 no model carries adapter-specific SQL.
@@ -690,8 +697,9 @@ the DAG's path.
 What remains, on purpose, until the package rewrite: the `postgres-warehouse`
 service in `docker-compose.yml`, `src/postgres_loader.py` and its test, the
 Postgres load at the end of `src/main.py`, and the `dev` and `prod` targets in
-`dbt/profiles.yml`. Together they let the dbt project run against a local
-Postgres with no cloud accounts, which is still a useful way to read the SQL.
+`dbt/profiles.yml`. Neither is the default: `dbt build --target dev` runs the
+dbt project against a local Postgres with no cloud accounts, which is still
+a useful way to read the SQL.
 
 ---
 
