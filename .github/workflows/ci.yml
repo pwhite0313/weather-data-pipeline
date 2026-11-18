@@ -31,6 +31,44 @@ jobs:
           WAREHOUSE_HOST: localhost
           WAREHOUSE_DB: test_db
 
+  dbt:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dbt
+    env:
+      DBT_PROFILES_DIR: .
+      DBT_TARGET: snowflake
+      # Placeholders. dbt parse renders the profile but never connects.
+      SNOWFLAKE_ACCOUNT: ci
+      SNOWFLAKE_USER: ci
+      SNOWFLAKE_ROLE: ci
+      SNOWFLAKE_WAREHOUSE: ci
+      SNOWFLAKE_DATABASE: ci
+      SNOWFLAKE_PRIVATE_KEY_PATH: /nonexistent
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r ../requirements.txt
+
+      - name: dbt deps
+        run: dbt deps
+
+      - name: dbt parse
+        run: dbt parse
+
+      - name: The test count matches the README
+        run: test "$(dbt ls --resource-type test -q | wc -l)" -eq 53
+
   gitleaks:
     runs-on: ubuntu-latest
 

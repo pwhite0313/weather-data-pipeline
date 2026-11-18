@@ -132,7 +132,7 @@ def weather_daily():
         task_id="dbt_source_freshness",
         bash_command=(
             f"dbt source freshness --project-dir {DBT_DIR} "
-            f"--profiles-dir {DBT_DIR} --target ${{DBT_TARGET:-dev}}"
+            f"--profiles-dir {DBT_DIR} --target ${{DBT_TARGET:-snowflake}}"
         ),
     )
 
@@ -148,7 +148,7 @@ def weather_daily():
         retries=0,
         bash_command=(
             f"dbt build --project-dir {DBT_DIR} "
-            f"--profiles-dir {DBT_DIR} --target ${{DBT_TARGET:-dev}}"
+            f"--profiles-dir {DBT_DIR} --target ${{DBT_TARGET:-snowflake}}"
         ),
     )
 
