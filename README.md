@@ -5,7 +5,7 @@
 [![CI](https://github.com/pwhite0313/weather-data-pipeline/actions/workflows/ci.yml/badge.svg)](https://github.com/pwhite0313/weather-data-pipeline/actions/workflows/ci.yml)
 ![tests](https://img.shields.io/badge/pytest-92-blue)
 ![dbt tests](https://img.shields.io/badge/dbt%20tests-53-blue)
-![unattended](https://img.shields.io/badge/unattended%20since%202026--10--30-5%20scheduled%20runs-brightgreen)
+![unattended](https://img.shields.io/badge/unattended%20since%202026--10--30-20%20scheduled%20runs%20as%20of%202026--11--18-brightgreen)
 
 Every morning at 06:00 UTC an EC2 instance pulls the five day forecast for 15
 cities, lands the raw payloads and a flat CSV in S3, loads Snowflake with
@@ -19,7 +19,7 @@ record that proves it.
 | Claim | Evidence |
 |---|---|
 | Runs on EC2 with no AWS keys on the machine | [docs/hosting.md](docs/hosting.md): instance role for S3, key pair for Snowflake |
-| Five scheduled runs with nobody on the box, 2026-10-30 to 2026-11-03, about 50 seconds and 600 rows each | [docs/pipeline_runs.md, 2026-11-03](docs/pipeline_runs.md#2026-11-03-five-scheduled-runs-one-caught-by-a-test-day-6) |
+| Twenty scheduled runs with nobody on the box, 2026-10-30 to 2026-11-18, nineteen green, 48 to 62 seconds and 600 rows each | [docs/pipeline_runs.md, 2026-11-18](docs/pipeline_runs.md#2026-11-18-twenty-scheduled-runs-nineteen-green) |
 | A bad value from the API (humidity 101) stopped at the staging tests; the marts never saw it, the phone did | [docs/pipeline_runs.md, the failure on 2026-11-01](docs/pipeline_runs.md#the-failure-on-2026-11-01) |
 | A task failure reaches a phone; the repaired task re-runs without a second API call | [docs/pipeline_runs.md, 2026-10-29](docs/pipeline_runs.md#2026-10-29-the-deliberate-failure-cleared-alone-day-4b) |
 | A run that never happens reaches an inbox, from outside the instance | [ADR 0002](docs/decisions/0002-stale-data-alert.md): test email received 2026-10-29 |
@@ -132,11 +132,11 @@ From the first unattended run, 2026-10-30 06:00 UTC, read from the task log,
 | Hosting | about $36 a month on a $40 budget |
 | Snowflake | about 0.058 credits a day when nobody is querying, under $5 a month |
 
-Since then, five scheduled runs through 2026-11-03: four green at 48 to 53
-seconds, one stopped by a dbt test on real bad data (see the incident log).
-`RAW.WEATHER_FORECAST` holds 8400 rows across 14 files. Each day's run
-re-forecasts most of the slots the previous day covered, so only 2070 of
-those rows are distinct `(city_id, dt)` slots; the staging model's
+Counting that one, twenty scheduled runs through 2026-11-18: nineteen green
+at 48 to 62 seconds, one stopped by a dbt test on real bad data (see the
+incident log). `RAW.WEATHER_FORECAST` holds 17400 rows across 29 files. Each
+day's run re-forecasts most of the slots the previous day covered, so only
+3869 of those rows are distinct `(city_id, dt)` slots; the staging model's
 `ROW_NUMBER()` keeps the latest forecast for each.
 
 ---

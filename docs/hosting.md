@@ -99,4 +99,6 @@ ls ~/weather/logs/dag_id=weather_daily/                    # one folder per run,
 
 The hosted review (the guide's day 16) is the day after the tenth hosted
 run. First hosted run: 2026-10-29 (manual). First scheduled: 2026-10-30 06:00
-UTC. Tenth scheduled run: 2026-11-08. **Review date: 2026-11-09.**
+UTC. Tenth scheduled run: 2026-11-08, green. The review planned for
+2026-11-09 was held on 2026-11-18, after twenty scheduled runs; the read is
+in [pipeline_runs.md](pipeline_runs.md#2026-11-18-twenty-scheduled-runs-nineteen-green).
