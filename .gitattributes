@@ -4,7 +4,7 @@
 # Do not modify notebooks
 *.ipynb -text
 
-# Binary files — never touch line endings
+# Binary files: never touch line endings
 *.png binary
 *.jpg binary
 *.jpeg binary

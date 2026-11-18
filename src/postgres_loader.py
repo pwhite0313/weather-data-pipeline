@@ -30,7 +30,7 @@ def get_engine() -> Engine:
         logger.info("Built database URL from Airflow connection: weather_warehouse")
         return create_engine(db_url)
     except Exception:
-        logger.info("Airflow connection not available — falling back to environment variables")
+        logger.info("Airflow connection not available, falling back to environment variables")
 
     db_url = os.getenv("POSTGRES_DBT_URL") or os.getenv("DATABASE_URL")
 
@@ -103,8 +103,8 @@ def align_columns_to_table(engine: Engine, df: pd.DataFrame) -> pd.DataFrame:
     new_columns = [c for c in df.columns if c not in known_columns]
     if new_columns:
         logger.warning(
-            "Dropping %d unknown column(s) not present in %s.%s: %s — "
-            "run ALTER TABLE to start capturing this data",
+            "Dropping %d unknown column(s) not present in %s.%s: %s. "
+            "Run ALTER TABLE to start capturing this data",
             len(new_columns), RAW_SCHEMA, RAW_TABLE, new_columns,
         )
         df = df.drop(columns=new_columns)
@@ -123,7 +123,7 @@ def file_already_loaded(engine: Engine, source_file_name: str) -> bool:
         """), {"schema": RAW_SCHEMA, "table": RAW_TABLE}).first()
 
         if not table_exists:
-            logger.info("Table does not exist yet — treating as not loaded")
+            logger.info("Table does not exist yet, treating as not loaded")
             return False
 
         result = conn.execute(text(

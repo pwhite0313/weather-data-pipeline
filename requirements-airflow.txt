@@ -1,22 +1,17 @@
-# dbt-core/dbt-postgres match requirements.txt's pins exactly (1.11.8),
-# since dbt/models/marts/schema.yml uses the `arguments:` generic-test
-# syntax introduced in dbt-core 1.9 — anything older fails with
-# "macro ... takes no keyword argument 'arguments'". Requires Python >=3.9
-# (see the Dockerfile's -python3.11 base image tag).
+# dbt-core and both adapters are pinned to the versions in requirements.txt.
+# The schema.yml files use the `arguments:` syntax for generic tests, and an
+# older dbt fails on it with "macro ... takes no keyword argument 'arguments'".
+# Needs Python 3.9 or later; the Dockerfile's base image is python3.11.
 #
-# Do NOT pin dbt-adapters/dbt-common/dbt-extractor/dbt-protos/
-# dbt-semantic-interfaces here even though requirements.txt does — those
-# are transitive deps of dbt-core/dbt-postgres, and Airflow's base image
-# already has its own dependency graph installed (this file's install is a
-# SEPARATE pip run on top of it, not a combined resolution). Pinning the
-# siblings to requirements.txt's exact versions over-constrains pip and
-# produces a hard ResolutionImpossible; leaving them unpinned lets pip
-# upgrade only what's needed and succeed (with a harmless warning about
-# opentelemetry-proto/protobuf — Airflow has no OTel exporter configured
-# here, so this doesn't affect actual functionality).
+# dbt's own dependencies (dbt-adapters, dbt-common, dbt-extractor, dbt-protos,
+# dbt-semantic-interfaces) are left unpinned on purpose. This file is
+# installed on top of the Airflow image in a separate pip run, and pinning
+# them to the versions in requirements.txt ends in ResolutionImpossible.
+# Unpinned, pip prints a warning about opentelemetry-proto and protobuf that
+# can be ignored: no OpenTelemetry exporter is configured.
 #
-# apache-airflow-providers-postgres is intentionally NOT listed here — see
-# the Dockerfile, it's installed in its own separate step before this file.
+# apache-airflow-providers-postgres is not listed here. The Dockerfile
+# installs it in its own step.
 dbt-postgres==1.10.0
 dbt-core==1.11.8
 requests

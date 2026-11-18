@@ -7,7 +7,7 @@ CREATE DATABASE IF NOT EXISTS WEATHER_DB
 DROP SCHEMA IF EXISTS WEATHER_DB.PUBLIC;
 
 CREATE SCHEMA IF NOT EXISTS WEATHER_DB.RAW
-    COMMENT = 'Landed JSON as VARIANT. Never modified, only appended';
+    COMMENT = 'Forecast rows as COPY loaded them. Never modified, only appended';
 CREATE SCHEMA IF NOT EXISTS WEATHER_DB.STAGING
     COMMENT = 'dbt staging models, one per source entity';
 CREATE SCHEMA IF NOT EXISTS WEATHER_DB.ANALYTICS
