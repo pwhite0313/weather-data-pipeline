@@ -95,44 +95,12 @@ so the scan is clean from here on and can run in CI.
 
 ## Scan output
 
-Baseline, 2026-10-19, before remediation (`gitleaks git -v --redact`):
+Before remediation, 2026-10-19 (`gitleaks git -v --redact`): three findings,
+all `generic-api-key` in `config/airflow.cfg` at commit `f860cad`, on lines
+165, 1204 and 1510.
 
 ```
-Finding:     fernet_key = REDACTED
-Secret:      REDACTED
-RuleID:      generic-api-key
-Entropy:     4.896821
-File:        config/airflow.cfg
-Line:        165
-Commit:      f860cadf59af27e0c7ac87ab0048de98ebc90087
-Date:        2026-03-19T21:02:48Z
-Fingerprint: f860cadf59af27e0c7ac87ab0048de98ebc90087:config/airflow.cfg:generic-api-key:165
-Link:        https://github.com/pwhite0313/weather-data-pipeline/blob/f860cadf59af27e0c7ac87ab0048de98ebc90087/config/airflow.cfg#L165
-
-Finding:     secret_key = REDACTED
-Secret:      REDACTED
-RuleID:      generic-api-key
-Entropy:     4.105389
-File:        config/airflow.cfg
-Line:        1204
-Commit:      f860cadf59af27e0c7ac87ab0048de98ebc90087
-Date:        2026-03-19T21:02:48Z
-Fingerprint: f860cadf59af27e0c7ac87ab0048de98ebc90087:config/airflow.cfg:generic-api-key:1204
-Link:        https://github.com/pwhite0313/weather-data-pipeline/blob/f860cadf59af27e0c7ac87ab0048de98ebc90087/config/airflow.cfg#L1204
-
-Finding:     jwt_secret = REDACTED
-Secret:      REDACTED
-RuleID:      generic-api-key
-Entropy:     4.168296
-File:        config/airflow.cfg
-Line:        1510
-Commit:      f860cadf59af27e0c7ac87ab0048de98ebc90087
-Date:        2026-03-19T21:02:48Z
-Fingerprint: f860cadf59af27e0c7ac87ab0048de98ebc90087:config/airflow.cfg:generic-api-key:1510
-Link:        https://github.com/pwhite0313/weather-data-pipeline/blob/f860cadf59af27e0c7ac87ab0048de98ebc90087/config/airflow.cfg#L1510
-
 INF 146 commits scanned.
-INF scanned ~2130126 bytes (2.13 MB) in 400ms
 WRN leaks found: 3
 ```
 
@@ -140,6 +108,5 @@ After remediation, with `.gitleaksignore` in place:
 
 ```
 INF 146 commits scanned.
-INF scanned ~2130126 bytes (2.13 MB) in 404ms
 INF no leaks found
 ```

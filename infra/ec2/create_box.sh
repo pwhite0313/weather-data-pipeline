@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Day 3B in one script, run from CloudShell as the console login:
+# The hosting setup in one script, run from CloudShell as the console login:
 # budget, SSH key import, instance role, security group, the instance.
 #
 # Needs three variables set in the shell first:
@@ -30,7 +30,7 @@ echo "== key pair weather-ec2 (public half only; the private key never leaves th
 printf '%s\n' "$PUBLIC_KEY" > /tmp/weather-ec2.pub
 aws ec2 import-key-pair --key-name weather-ec2 --public-key-material fileb:///tmp/weather-ec2.pub --region "$REGION" --query KeyName --output text
 
-echo "== role weather-ec2-role: EC2 may assume it; it carries the day 1 write policy"
+echo "== role weather-ec2-role: EC2 may assume it; it carries the extractor write policy"
 cat > /tmp/ec2_trust.json <<'EOF'
 {"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"ec2.amazonaws.com"},"Action":"sts:AssumeRole"}]}
 EOF

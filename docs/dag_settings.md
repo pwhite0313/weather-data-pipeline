@@ -1,7 +1,7 @@
-# Airflow answers
+# DAG settings
 
-Short answers to the questions the DAG's design raises, written when the
-decision was made.
+Why each setting in `weather_daily` is what it is, written when the decision
+was made.
 
 ## Why the run's date is `data_interval_end`, not `ds` (2026-10-27)
 
@@ -22,7 +22,7 @@ travels with the run rather than being read from the clock.
 For a manual trigger on a DAG with a cron schedule, Airflow 2.8 does not use
 the trigger time as the interval. It uses the most recent completed interval:
 a trigger at 19:28 UTC on the 27th got `data_interval_start` 26th 06:00 and
-`data_interval_end` 27th 06:00 (seen on the day 3 manual run). So a manual
+`data_interval_end` 27th 06:00 (seen on the first manual run). So a manual
 run after 06:00 UTC lands in today's partition, and a manual run *before*
 06:00 UTC lands in yesterday's. Trigger manual runs after 06:00 UTC, or pass
 the date explicitly if that ever matters.
@@ -51,7 +51,7 @@ new file name, which COPY will then load.
 - `transform` to `write_to_s3`: the cleaned frame (600 rows). Airflow 2.6+
   serialises a pandas DataFrame through its own serde, which is how the
   previous DAG passed it. This is larger than XCom is meant for and goes away
-  when the DAG moves to the CLI (day 33): each step then writes a file and
+  when the DAG moves to the CLI: each step then writes a file and
   passes a path.
 - `write_to_s3` to the load: a dict with the date, the object keys and the row
   count.

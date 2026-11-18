@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Day 3C, the box side: Docker Engine, UTC, the clone. Run once on a fresh
+# The box side: Docker Engine, UTC, the clone. Run once on a fresh
 # Ubuntu 24.04 instance as ubuntu. Secrets are not here; they arrive by scp
 # afterwards (.env without AWS keys, keys/rsa_key.p8), never by commit.
 set -euo pipefail
