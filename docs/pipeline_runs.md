@@ -269,3 +269,46 @@ from the laptop on that warehouse, several resumes each: the cost of
 looking, not of running. Reads from a laptop should use `TRANSFORM_WH` or a
 warehouse of their own if that matters later; at these sizes it does not.
 The serverless alert is metered separately and did not show in this view.
+
+## 2026-11-18: twenty scheduled runs, nineteen green
+
+The fifteen scheduled runs since the last entry, read on 2026-11-18 from
+`list-runs` on the box and from `RAW.WEATHER_FORECAST`. Run time is
+`end_date` minus `start_date`.
+
+| Ran at (UTC) | run_id | COPY | Run |
+|---|---|---|---|
+| 2026-11-04 06:00 | `scheduled__2026-11-03T06:00:00+00:00` | 600 rows, 1 file | success, 60 s |
+| 2026-11-05 06:00 | `scheduled__2026-11-04T06:00:00+00:00` | 600 rows, 1 file | success, 56 s |
+| 2026-11-06 06:00 | `scheduled__2026-11-05T06:00:00+00:00` | 600 rows, 1 file | success, 62 s |
+| 2026-11-07 06:00 | `scheduled__2026-11-06T06:00:00+00:00` | 600 rows, 1 file | success, 55 s |
+| 2026-11-08 06:00 | `scheduled__2026-11-07T06:00:00+00:00` | 600 rows, 1 file | success, 51 s |
+| 2026-11-09 06:00 | `scheduled__2026-11-08T06:00:00+00:00` | 600 rows, 1 file | success, 58 s |
+| 2026-11-10 06:00 | `scheduled__2026-11-09T06:00:00+00:00` | 600 rows, 1 file | success, 57 s |
+| 2026-11-11 06:00 | `scheduled__2026-11-10T06:00:00+00:00` | 600 rows, 1 file | success, 62 s |
+| 2026-11-12 06:00 | `scheduled__2026-11-11T06:00:00+00:00` | 600 rows, 1 file | success, 54 s |
+| 2026-11-13 06:00 | `scheduled__2026-11-12T06:00:00+00:00` | 600 rows, 1 file | success, 60 s |
+| 2026-11-14 06:00 | `scheduled__2026-11-13T06:00:00+00:00` | 600 rows, 1 file | success, 60 s |
+| 2026-11-15 06:00 | `scheduled__2026-11-14T06:00:00+00:00` | 600 rows, 1 file | success, 55 s |
+| 2026-11-16 06:00 | `scheduled__2026-11-15T06:00:00+00:00` | 600 rows, 1 file | success, 55 s |
+| 2026-11-17 06:00 | `scheduled__2026-11-16T06:00:00+00:00` | 600 rows, 1 file | success, 56 s |
+| 2026-11-18 06:00 | `scheduled__2026-11-17T06:00:00+00:00` | 600 rows, 1 file | success, 50 s |
+
+With the five above, that is twenty scheduled runs from 2026-10-30 to
+2026-11-18 with no day missed: nineteen green, and the one on 2026-11-01
+that a dbt test stopped. `dbt_build` is the last task and has no retries, so
+a green run is a build that passed. The four containers had been up two
+weeks without a restart.
+
+`RAW.WEATHER_FORECAST` holds 17400 rows across 29 files, 3869 distinct
+`(city_id, dt)` slots: 20 files of 600 rows since 2026-10-30, one a day, and
+9 files from before the box took the schedule.
+
+**The runs are getting slower.** The first five took 44 to 53 seconds; these
+fifteen took 50 to 62, most of them 55 to 60. The cause has not been traced.
+The likely one is that the staging model dedupes all of RAW on every build
+and RAW has doubled since 2026-11-03. It does not matter at this size. It is
+the first number to look at again if the table keeps growing.
+
+Not read today: the task logs, the bucket, and the `RAW.WEATHER_STALE`
+history for these fifteen days.
