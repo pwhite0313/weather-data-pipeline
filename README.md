@@ -526,8 +526,8 @@ made by hand on 2026-09-23 let dbt create `SNAPSHOTS` for `snp_city` itself,
 and nothing in `setup/` recorded either. A fresh account built from the
 scripts would have failed at the snapshot. Found on 2026-11-18 by comparing
 `SHOW SCHEMAS` and `SHOW GRANTS` with the scripts: `SNAPSHOTS` is now created
-in `02_database.sql` and granted in `03_roles_and_grants.sql`. Revoking the
-hand-made grant on the live account is the one step left.
+in `02_database.sql` and granted in `03_roles_and_grants.sql`, and the
+hand-made grant was revoked on 2026-11-19.
 
 ### October 2026: secrets in history
 
